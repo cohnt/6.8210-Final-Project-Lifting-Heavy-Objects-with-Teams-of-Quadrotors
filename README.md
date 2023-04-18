@@ -13,5 +13,4 @@ Registering geometry with the SceneGraph:
 1) Call RegisterAsSourceForSceneGraph() (this may already be done on instantiation of MultibodyPlant)
 2) Call RegisterVisualGeometry(). Drake has geometric primitives built in: https://drake.mit.edu/doxygen_cxx/classdrake_1_1geometry_1_1_sphere.html#ad4eb22638a3841217373d2caee0d6a74
 
-Then in TensileForce, just override the position of the force calculation from the origin to the current pose of the
-point mass.
+Then in TensileForce - modify to take in two bodies and output two forces (one on each body) - only need modify the input forces. Make sure the lists are aligned.
