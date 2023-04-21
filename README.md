@@ -7,7 +7,10 @@ Adding a rigid body: https://drake.mit.edu/doxygen_cxx/classdrake_1_1multibody_1
 Will use the default model instance (index 1)
 
 Work out the inertia matrix of a point (likely diagonal, and degenerate since orientation doesn't matter... 
-but that may mess up computations) (can also be created using UnitInertia class)
+but that may mess up computations) (can also be created using SpatialInertia.PointMass() static method)
+
+Looks like SpatialInertia.PointMass isn't available from python, so we will construct the spatial inertia
+matrix ourselves.
 
 Registering geometry with the SceneGraph: 
 1) Call RegisterAsSourceForSceneGraph() (this may already be done on instantiation of MultibodyPlant)
