@@ -25,7 +25,8 @@ from pydrake.all import (
     UnitInertia,
     CollisionFilterDeclaration,
     GeometrySet,
-    Sphere
+    Sphere,
+    AutoDiffXd
 )
 from pydrake.examples import (
     QuadrotorGeometry
@@ -59,9 +60,12 @@ def TensileForce_(T):
         def compute_spring_force(self, quad_pos, mass_pos):
             dist = np.linalg.norm(quad_pos - mass_pos)
 
-            f_mag = pydrake.symbolic.max(0, self.hooke_K * (dist - self.length))
-            if len(f_mag.GetVariables()) == 0:
-                f_mag = f_mag.Evaluate()
+            if isinstance(quad_pos[0], AutoDiffXd):
+                f_mag = (self.hooke_K * (dist - self.length)).max(0)
+            else:
+                f_mag = pydrake.symbolic.max(0, self.hooke_K * (dist - self.length))
+                if len(f_mag.GetVariables()) == 0:
+                    f_mag = f_mag.Evaluate()
             f_dir = (mass_pos - quad_pos) / dist
             return f_mag, f_dir
 
