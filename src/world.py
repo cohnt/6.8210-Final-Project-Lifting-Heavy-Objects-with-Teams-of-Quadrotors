@@ -64,7 +64,7 @@ def make_n_quadrotor_system(meshcat, n, mass=1.0):
     # form spatial inertia of floating mass (SpatialInertia factory methods are not available from Python,
     # so we'll need to construct it ourselves)
     point_inertia = SpatialInertia(mass, np.zeros(3), UnitInertia.SolidSphere(1))
-    print(point_inertia.IsPhysicallyValid())
+    # print(point_inertia.IsPhysicallyValid())
 
     # create floating mass and register visual geometry with scenegraph so it renders
     floating_mass_model_instance = plant.AddModelInstance("floating_mass")
@@ -144,6 +144,7 @@ def make_n_quadrotor_system(meshcat, n, mass=1.0):
         propellers.get_body_poses_input_port(),
     )
     builder.ExportInput(propellers.get_command_input_port(), "u")
+    builder.ExportOutput(plant.get_state_output_port(), "q")
 
     MeshcatVisualizer.AddToBuilder(builder, scene_graph, meshcat)
 
