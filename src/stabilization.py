@@ -25,7 +25,12 @@ from pydrake.all import (
     UnitInertia,
     CollisionFilterDeclaration,
     GeometrySet,
-    Sphere
+    Sphere,
+    MathematicalProgram,
+    Solve,
+    LinearQuadraticRegulator,
+    Linearize,
+    ContinuousAlgebraicRiccatiEquation
 )
 from pydrake.examples import (
     QuadrotorGeometry
@@ -34,32 +39,66 @@ from IPython.display import display, SVG, Image
 
 from underactuated.scenarios import AddFloatingRpyJoint
 
-from tensile import TensileForce, SpatialForceConcatinator
 
 from pydrake.systems.primitives import Adder
 
-def find_fixed_point_snopt():
-	pass # TODO
+from tensile import TensileForce, SpatialForceConcatinator
+from util import DisableCollisionChecking
+
+def find_fixed_point_snopt(diagram):
+    # Given a diagram with a single input and single output port, find a fixed point
+    # and a control signal which keeps it at the fixed point.
+    n_inputs = diagram.get_input_port(0).size()
+    n_outputs = diagram.get_output_port(0).size()
+
+    prog = MathematicalProgram()
+    u = prog.NewContinuousVariables(n_inputs, "u")
+    x = prog.NewContinuousVariables(n_outputs, "x")
+
+    # prog.AddLinearConstraint(x[-7:-4], np.zeros(3), np.zeros(3))
+
+    def time_derivative(decision_variables):
+        x = decision_variables[:n_outputs]
+        u = decision_variables[n_outputs:]
+        ad_diagram = diagram.ToAutoDiffXd()
+        context = ad_diagram.CreateDefaultContext()
+        sg = ad_diagram.GetSubsystemByName("scene_graph")
+        DisableCollisionChecking(sg, context)
+        ad_diagram.get_input_port(0).FixValue(context, u)
+        context.SetContinuousState(x)
+        output = ad_diagram.EvalTimeDerivatives(context)
+        return output.CopyToVector()
+
+    prog.AddConstraint(time_derivative, np.zeros(n_outputs), np.zeros(n_outputs), vars=np.hstack((x, u)))
+
+    prog.SetInitialGuess(x, np.random.normal(scale=10, size=n_outputs))
+    result = Solve(prog)
+    print(result.is_success())
+
+    return result.GetSolution(x), result.GetSolution(u)
 
 def lqr_stabilize_to_point(system_diagram, fixed_point, fixed_control_signal, Q, R):
     # Constructs an LQR controller for a given system, about a given fixed point with
     # fixed control signal, using the matrices Q and R
-	context = system_diagram.CreateDefaultContext()
+
+    context = system_diagram.CreateDefaultContext()
     context.SetContinuousState(fixed_point)
-    diagram.get_input_port(0).FixValue(fixed_control_signal)
+    system_diagram.get_input_port(0).FixValue(context, fixed_control_signal)
+
     return LinearQuadraticRegulator(system_diagram, context, Q, R)
 
 def finite_horizon_lqr_stabilize_to_trajectory():
-	pass # TODO
+    pass # TODO
 
 def mpc_stabilize_to_trajectory():
-	pass # TODO
+    pass # TODO
 
 def add_controller_to_system(system_diagram, controller):
     # Given a system diagram and a controller for that system, returns a bigger diagram
     # in which the controller controls the system.
     builder = DiagramBuilder()
-    system_plant = builder.AddNamedSystem('inner_diagram', system_diagram)
+    system_plant = builder.AddNamedSystem("inner_diagram", system_diagram)
+    system_controller = builder.AddNamedSystem("controller", controller)
     builder.Connect(controller.get_output_port(0), system_plant.get_input_port(0))
     builder.Connect(system_plant.get_output_port(), controller.get_input_port(0))
 
