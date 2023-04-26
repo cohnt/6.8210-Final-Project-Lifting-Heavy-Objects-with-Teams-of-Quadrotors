@@ -39,7 +39,7 @@ def CreateNullExternalForce(plant):
     f.body_index = plant.world_body().index()
     return f
 
-def DisableCollisionChecking(sg):
+def DisableCollisionChecking(sg, context):
     sg_context = sg.GetMyContextFromRoot(context)
     cfm = sg.collision_filter_manager(sg_context)
 
