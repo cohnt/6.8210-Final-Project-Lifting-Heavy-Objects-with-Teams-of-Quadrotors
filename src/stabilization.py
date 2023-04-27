@@ -43,7 +43,7 @@ from underactuated.scenarios import AddFloatingRpyJoint
 from pydrake.systems.primitives import Adder
 
 from tensile import TensileForce, SpatialForceConcatinator
-from util import DisableCollisionChecking
+from util import DisableCollisionChecking, is_stabilizable, is_detectable
 
 def find_fixed_point_snopt(diagram):
     # Given a diagram with a single input and single output port, find a fixed point
@@ -55,7 +55,12 @@ def find_fixed_point_snopt(diagram):
     u = prog.NewContinuousVariables(n_inputs, "u")
     x = prog.NewContinuousVariables(n_outputs, "x")
 
-    # prog.AddLinearConstraint(x[-7:-4], np.zeros(3), np.zeros(3))
+    prog.AddLinearConstraint(x[-7:-4], np.zeros(3), np.zeros(3))
+
+    for i in range(int(n_inputs/4)):
+        start = i*6
+        stop = start + 3
+        prog.AddConstraint(np.linalg.norm(x[start:stop]) >= 2.5)
 
     def time_derivative(decision_variables):
         x = decision_variables[:n_outputs]
@@ -83,7 +88,15 @@ def lqr_stabilize_to_point(system_diagram, fixed_point, fixed_control_signal, Q,
 
     context = system_diagram.CreateDefaultContext()
     context.SetContinuousState(fixed_point)
+    sg = system_diagram.GetSubsystemByName("scene_graph")
+    DisableCollisionChecking(sg, context)
     system_diagram.get_input_port(0).FixValue(context, fixed_control_signal)
+
+    linearization = Linearize(system_diagram, context)
+    if not is_stabilizable(linearization.A(), linearization.B()):
+        print("Warning: (A, B) is not stabilizable! LQR may not work!", flush=True)
+    if not is_detectable(linearization.A(), Q):
+        print("Warning: (A, Q) is not detectable! LQR may not work!", flush=True)
 
     return LinearQuadraticRegulator(system_diagram, context, Q, R)
 

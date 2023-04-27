@@ -60,3 +60,16 @@ def plot_plant():
 
 def plot_diagram():
     pass # TODO
+
+def is_stabilizable(A, B):
+    print(A.shape)
+    evals, evecs = np.linalg.eig(A)
+    for l in evals:
+        if np.real(l) >= 0:
+            mat = np.hstack((l*np.eye(A.shape[0])-A, B))
+            if np.linalg.matrix_rank(mat) != A.shape[0]:
+                return False
+    return True
+
+def is_detectable(A, Q):
+    return is_stabilizable(Q.T, A.T)
