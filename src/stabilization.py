@@ -77,6 +77,9 @@ def find_fixed_point_snopt(diagram):
 
         prog.AddConstraint(time_derivative, np.zeros(n_outputs), np.zeros(n_outputs), vars=np.hstack((x, u)))
 
+        prog.AddQuadraticCost(np.eye(len(x)), np.zeros(len(x)), x)
+        prog.AddQuadraticCost(np.eye(len(u)), np.zeros(len(u)), u)
+
         prog.SetInitialGuess(x, np.random.normal(scale=10, size=n_outputs))
         try:
             result = Solve(prog)
