@@ -1,9 +1,11 @@
 import numpy as np
+import pydot
 from pydrake.all import (
     ExternallyAppliedSpatialForce,
     GeometrySet,
     CollisionFilterDeclaration
 )
+from IPython.display import display, Image
 
 def CreateNullExternalForce(plant):
     f = ExternallyAppliedSpatialForce()
@@ -26,11 +28,19 @@ def DisableCollisionChecking(sg, context):
     cfd.ExcludeWithin(quads)
     cfm.Apply(cfd)
 
-def plot_plant():
-    pass # TODO
+def notebook_plot_plant(plant):
+    display(
+        Image(
+            pydot.graph_from_dot_data(plant.GetTopologyGraphvizString())[0].create_png()
+        )
+    )
 
-def plot_diagram():
-    pass # TODO
+def notebook_plot_diagram(diagram):
+    display(
+        Image(
+            pydot.graph_from_dot_data(diagram.GetGraphvizString())[0].create_png()
+        )
+    )
 
 def is_stabilizable(A, B):
     print(A.shape)
