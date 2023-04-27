@@ -1,39 +1,16 @@
 import numpy as np
-import pydot
-import pydrake
+import pydrake.symbolic, pydrake.geometry
 from pydrake.all import (
-    DiagramBuilder,
-    MultibodyPlant,
-    Parser,
-    Propeller,
-    PropellerInfo,
-    RigidTransform,
-    StartMeshcat,
-    MeshcatVisualizer,
-    SceneGraph,
-    Simulator,
-    AddMultibodyPlantSceneGraph,
-    LeafSystem,
-    LeafSystem_,
-    ExternallyAppliedSpatialForce,
-    ExternallyAppliedSpatialForce_,
     TemplateSystem,
-    AbstractValue,
-    SpatialForce,
+    LeafSystem_,
     SpatialForce_,
-    SpatialInertia,
-    UnitInertia,
-    CollisionFilterDeclaration,
-    GeometrySet,
-    Sphere,
+    AbstractValue,
+    ExternallyAppliedSpatialForce_,
     AutoDiffXd
 )
 from pydrake.examples import (
     QuadrotorGeometry
 )
-from IPython.display import display, SVG, Image
-
-from underactuated.scenarios import AddFloatingRpyJoint
 
 @TemplateSystem.define("TensileForce_")
 def TensileForce_(T):

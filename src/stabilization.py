@@ -1,48 +1,12 @@
 import numpy as np
-import pydot
-import pydrake
 from pydrake.all import (
-    DiagramBuilder,
-    MultibodyPlant,
-    Parser,
-    Propeller,
-    PropellerInfo,
-    RigidTransform,
-    StartMeshcat,
-    MeshcatVisualizer,
-    SceneGraph,
-    Simulator,
-    AddMultibodyPlantSceneGraph,
-    LeafSystem,
-    LeafSystem_,
-    ExternallyAppliedSpatialForce,
-    ExternallyAppliedSpatialForce_,
-    TemplateSystem,
-    AbstractValue,
-    SpatialForce,
-    SpatialForce_,
-    SpatialInertia,
-    UnitInertia,
-    CollisionFilterDeclaration,
-    GeometrySet,
-    Sphere,
     MathematicalProgram,
     Solve,
-    LinearQuadraticRegulator,
     Linearize,
-    ContinuousAlgebraicRiccatiEquation
+    LinearQuadraticRegulator,
+    DiagramBuilder
 )
-from pydrake.examples import (
-    QuadrotorGeometry
-)
-from IPython.display import display, SVG, Image
 
-from underactuated.scenarios import AddFloatingRpyJoint
-
-
-from pydrake.systems.primitives import Adder
-
-from tensile import TensileForce, SpatialForceConcatinator
 from util import DisableCollisionChecking, is_stabilizable, is_detectable
 
 def find_fixed_point_snopt(diagram):
