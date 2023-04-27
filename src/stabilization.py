@@ -51,34 +51,40 @@ def find_fixed_point_snopt(diagram):
     n_inputs = diagram.get_input_port(0).size()
     n_outputs = diagram.get_output_port(0).size()
 
-    prog = MathematicalProgram()
-    u = prog.NewContinuousVariables(n_inputs, "u")
-    x = prog.NewContinuousVariables(n_outputs, "x")
+    for i in range(100):
+        prog = MathematicalProgram()
+        u = prog.NewContinuousVariables(n_inputs, "u")
+        x = prog.NewContinuousVariables(n_outputs, "x")
 
-    prog.AddLinearConstraint(x[-7:-4], np.zeros(3), np.zeros(3))
+        prog.AddLinearConstraint(x[-7:-4], np.zeros(3), np.zeros(3))
 
-    for i in range(int(n_inputs/4)):
-        start = i*6
-        stop = start + 3
-        prog.AddConstraint(np.linalg.norm(x[start:stop]) >= 2.5)
+        for i in range(int(n_inputs/4)):
+            start = i*6
+            stop = start + 3
+            prog.AddConstraint(np.linalg.norm(x[start:stop]) >= 2.5)
 
-    def time_derivative(decision_variables):
-        x = decision_variables[:n_outputs]
-        u = decision_variables[n_outputs:]
-        ad_diagram = diagram.ToAutoDiffXd()
-        context = ad_diagram.CreateDefaultContext()
-        sg = ad_diagram.GetSubsystemByName("scene_graph")
-        DisableCollisionChecking(sg, context)
-        ad_diagram.get_input_port(0).FixValue(context, u)
-        context.SetContinuousState(x)
-        output = ad_diagram.EvalTimeDerivatives(context)
-        return output.CopyToVector()
+        def time_derivative(decision_variables):
+            x = decision_variables[:n_outputs]
+            u = decision_variables[n_outputs:]
+            ad_diagram = diagram.ToAutoDiffXd()
+            context = ad_diagram.CreateDefaultContext()
+            sg = ad_diagram.GetSubsystemByName("scene_graph")
+            DisableCollisionChecking(sg, context)
+            ad_diagram.get_input_port(0).FixValue(context, u)
+            context.SetContinuousState(x)
+            output = ad_diagram.EvalTimeDerivatives(context)
+            return output.CopyToVector()
 
-    prog.AddConstraint(time_derivative, np.zeros(n_outputs), np.zeros(n_outputs), vars=np.hstack((x, u)))
+        prog.AddConstraint(time_derivative, np.zeros(n_outputs), np.zeros(n_outputs), vars=np.hstack((x, u)))
 
-    prog.SetInitialGuess(x, np.random.normal(scale=10, size=n_outputs))
-    result = Solve(prog)
-    print(result.is_success())
+        prog.SetInitialGuess(x, np.random.normal(scale=10, size=n_outputs))
+        try:
+            result = Solve(prog)
+            if result.is_success():
+                print(result.is_success())
+                break
+        except:
+            pass
 
     return result.GetSolution(x), result.GetSolution(u)
 
