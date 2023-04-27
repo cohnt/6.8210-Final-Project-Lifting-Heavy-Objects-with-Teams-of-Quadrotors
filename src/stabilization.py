@@ -93,10 +93,19 @@ def lqr_stabilize_to_point(system_diagram, fixed_point, fixed_control_signal, Q,
     system_diagram.get_input_port(0).FixValue(context, fixed_control_signal)
 
     linearization = Linearize(system_diagram, context)
+    flag = False
     if not is_stabilizable(linearization.A(), linearization.B()):
+        flag = True
         print("Warning: (A, B) is not stabilizable! LQR may not work!", flush=True)
     if not is_detectable(linearization.A(), Q):
+        flag = True
         print("Warning: (A, Q) is not detectable! LQR may not work!", flush=True)
+
+    if flag:
+        np.savetxt("A.txt", linearization.A())
+        np.savetxt("B.txt", linearization.B())
+        np.savetxt("Q.txt", Q)
+        np.savetxt("R.txt", R)
 
     return LinearQuadraticRegulator(system_diagram, context, Q, R)
 
