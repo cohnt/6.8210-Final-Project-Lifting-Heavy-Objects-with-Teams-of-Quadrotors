@@ -106,9 +106,9 @@ def lqr_stabilize_to_point(system_diagram, fixed_point, fixed_control_signal, Q,
     if not is_stabilizable(linearization.A(), linearization.B()):
         flag = True
         print("Warning: (A, B) is not stabilizable! LQR may not work!", flush=True)
-    if not is_detectable(linearization.A(), Q):
+    if not is_detectable(Q, linearization.A()):
         flag = True
-        print("Warning: (A, Q) is not detectable! LQR may not work!", flush=True)
+        print("Warning: (Q, A) is not detectable! LQR may not work!", flush=True)
 
     if flag:
         np.savetxt("A.txt", linearization.A())

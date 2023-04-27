@@ -71,5 +71,5 @@ def is_stabilizable(A, B):
                 return False
     return True
 
-def is_detectable(A, Q):
-    return is_stabilizable(Q.T, A.T)
+def is_detectable(A, C):
+    return is_stabilizable(C.T, A.T)
