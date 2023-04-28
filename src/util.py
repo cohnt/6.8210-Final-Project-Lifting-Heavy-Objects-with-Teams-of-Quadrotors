@@ -1,11 +1,38 @@
 import numpy as np
 import pydot
+import pydrake
 from pydrake.all import (
+    DiagramBuilder,
+    MultibodyPlant,
+    Parser,
+    Propeller,
+    PropellerInfo,
+    RigidTransform,
+    StartMeshcat,
+    MeshcatVisualizer,
+    SceneGraph,
+    Simulator,
+    AddMultibodyPlantSceneGraph,
+    LeafSystem,
+    LeafSystem_,
     ExternallyAppliedSpatialForce,
+    ExternallyAppliedSpatialForce_,
+    TemplateSystem,
+    AbstractValue,
+    SpatialForce,
+    SpatialForce_,
+    SpatialInertia,
+    UnitInertia,
+    CollisionFilterDeclaration,
     GeometrySet,
-    CollisionFilterDeclaration
+    Sphere
 )
-from IPython.display import display, Image
+from pydrake.examples import (
+    QuadrotorGeometry
+)
+from IPython.display import display, SVG, Image
+
+from underactuated.scenarios import AddFloatingRpyJoint
 
 def CreateNullExternalForce(plant):
     f = ExternallyAppliedSpatialForce()
@@ -28,29 +55,8 @@ def DisableCollisionChecking(sg, context):
     cfd.ExcludeWithin(quads)
     cfm.Apply(cfd)
 
-def notebook_plot_plant(plant):
-    display(
-        Image(
-            pydot.graph_from_dot_data(plant.GetTopologyGraphvizString())[0].create_png()
-        )
-    )
+def plot_plant():
+    pass # TODO
 
-def notebook_plot_diagram(diagram):
-    display(
-        Image(
-            pydot.graph_from_dot_data(diagram.GetGraphvizString())[0].create_png()
-        )
-    )
-
-def is_stabilizable(A, B):
-    print(A.shape)
-    evals, evecs = np.linalg.eig(A)
-    for l in evals:
-        if np.real(l) >= 0:
-            mat = np.hstack((l*np.eye(A.shape[0])-A, B))
-            if np.linalg.matrix_rank(mat) != A.shape[0]:
-                return False
-    return True
-
-def is_detectable(A, C):
-    return is_stabilizable(C.T, A.T)
+def plot_diagram():
+    pass # TODO
