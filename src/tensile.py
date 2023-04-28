@@ -1,38 +1,16 @@
 import numpy as np
-import pydot
-import pydrake
+import pydrake.symbolic, pydrake.geometry
 from pydrake.all import (
-    DiagramBuilder,
-    MultibodyPlant,
-    Parser,
-    Propeller,
-    PropellerInfo,
-    RigidTransform,
-    StartMeshcat,
-    MeshcatVisualizer,
-    SceneGraph,
-    Simulator,
-    AddMultibodyPlantSceneGraph,
-    LeafSystem,
-    LeafSystem_,
-    ExternallyAppliedSpatialForce,
-    ExternallyAppliedSpatialForce_,
     TemplateSystem,
-    AbstractValue,
-    SpatialForce,
+    LeafSystem_,
     SpatialForce_,
-    SpatialInertia,
-    UnitInertia,
-    CollisionFilterDeclaration,
-    GeometrySet,
-    Sphere
+    AbstractValue,
+    ExternallyAppliedSpatialForce_,
+    AutoDiffXd
 )
 from pydrake.examples import (
     QuadrotorGeometry
 )
-from IPython.display import display, SVG, Image
-
-from underactuated.scenarios import AddFloatingRpyJoint
 
 @TemplateSystem.define("TensileForce_")
 def TensileForce_(T):
@@ -59,9 +37,12 @@ def TensileForce_(T):
         def compute_spring_force(self, quad_pos, mass_pos):
             dist = np.linalg.norm(quad_pos - mass_pos)
 
-            f_mag = pydrake.symbolic.max(0, self.hooke_K * (dist - self.length))
-            if len(f_mag.GetVariables()) == 0:
-                f_mag = f_mag.Evaluate()
+            if isinstance(quad_pos[0], AutoDiffXd):
+                f_mag = (self.hooke_K * (dist - self.length)).max(0)
+            else:
+                f_mag = pydrake.symbolic.max(0, self.hooke_K * (dist - self.length))
+                if len(f_mag.GetVariables()) == 0:
+                    f_mag = f_mag.Evaluate()
             f_dir = (mass_pos - quad_pos) / dist
             return f_mag, f_dir
 
