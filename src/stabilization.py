@@ -12,7 +12,7 @@ from pydrake.all import (
 
 from util import DisableCollisionChecking, is_stabilizable, is_detectable
 
-def find_fixed_point_snopt(diagram, limit=None):
+def find_fixed_point_snopt(diagram, limit=None, min_quadrotor_distance=None):
     # Given a diagram with a single input and single output port, find a fixed point
     # and a control signal which keeps it at the fixed point.
     n_inputs = diagram.get_input_port(0).size()
@@ -23,10 +23,14 @@ def find_fixed_point_snopt(diagram, limit=None):
         u = prog.NewContinuousVariables(n_inputs, "u")
         x = prog.NewContinuousVariables(n_outputs, "x")
 
-        for i in range(int(n_inputs/4)):
-            start = i*6
-            stop = start + 3
-            prog.AddConstraint(np.linalg.norm(x[start:stop]) >= 2.5)
+        if min_quadrotor_distance is not None:
+            for i in range(int(n_inputs/4)):
+                for j in range(i+1, int(n_inputs/4)):
+                    start1 = i*6
+                    stop1 = start1 + 3
+                    start2 = j*6
+                    stop2 = start2 + 3
+                    prog.AddConstraint(np.linalg.norm(x[start1:stop1] - x[start2:stop2]) >= min_quadrotor_distance)
 
         if limit is not None:
             prog.AddLinearConstraint(u, -limit*np.ones(u.shape), limit*np.ones(u.shape))
