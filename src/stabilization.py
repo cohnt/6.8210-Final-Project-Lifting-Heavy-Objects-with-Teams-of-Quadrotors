@@ -6,12 +6,13 @@ from pydrake.all import (
     LinearQuadraticRegulator,
     MakeFiniteHorizonLinearQuadraticRegulator,
     FiniteHorizonLinearQuadraticRegulatorOptions,
-    DiagramBuilder
+    DiagramBuilder,
+    Saturation
 )
 
 from util import DisableCollisionChecking, is_stabilizable, is_detectable
 
-def find_fixed_point_snopt(diagram):
+def find_fixed_point_snopt(diagram, limit=None):
     # Given a diagram with a single input and single output port, find a fixed point
     # and a control signal which keeps it at the fixed point.
     n_inputs = diagram.get_input_port(0).size()
@@ -26,6 +27,9 @@ def find_fixed_point_snopt(diagram):
             start = i*6
             stop = start + 3
             prog.AddConstraint(np.linalg.norm(x[start:stop]) >= 2.5)
+
+        if limit is not None:
+            prog.AddLinearConstraint(u, -limit*np.ones(u.shape), limit*np.ones(u.shape))
 
         def time_derivative(decision_variables):
             x = decision_variables[:n_outputs]
@@ -94,13 +98,22 @@ def finite_horizon_lqr_stabilize_to_trajectory():
 def mpc_stabilize_to_trajectory():
     pass # TODO
 
-def add_controller_to_system(system_diagram, controller):
+def add_controller_to_system(system_diagram, controller, limit=None):
     # Given a system diagram and a controller for that system, returns a bigger diagram
     # in which the controller controls the system.
     builder = DiagramBuilder()
     system_plant = builder.AddNamedSystem("inner_diagram", system_diagram)
     system_controller = builder.AddNamedSystem("controller", controller)
-    builder.Connect(controller.get_output_port(0), system_plant.get_input_port(0))
-    builder.Connect(system_plant.get_output_port(), controller.get_input_port(0))
+    if limit is None:
+        builder.Connect(controller.get_output_port(0), system_plant.get_input_port(0))
+        builder.Connect(system_plant.get_output_port(), controller.get_input_port(0))
+    else:
+        n = controller.get_output_port(0).size()
+        min_value = -limit * np.ones(n)
+        max_value = -1 * min_value
+        saturation = builder.AddNamedSystem("input_limits", Saturation(min_value, max_value))
+        builder.Connect(system_plant.get_output_port(), controller.get_input_port(0))
+        builder.Connect(controller.get_output_port(0), saturation.get_input_port(0))
+        builder.Connect(saturation.get_output_port(0), system_plant.get_input_port(0))
 
     return builder.Build(), system_plant
