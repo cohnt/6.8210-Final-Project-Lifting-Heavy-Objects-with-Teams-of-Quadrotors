@@ -25,7 +25,7 @@ def TensileForce_(T):
             self.quad_body_index = quad_body_index  # Index of the affected body from the plant
             self.mass_body_index = mass_body_index  # Index of the affected body from the plant
 
-            self.anchor_displacement = np.random.normal(loc=0, scale=0.1, size=3)
+            self.anchor_displacement = np.random.normal(loc=0, scale=0.0, size=3) # Broken unless loc=scale=0
 
             self.quad_state_input = self.DeclareVectorInputPort("quad_state_input", size=12)
             self.mass_state_input = self.DeclareVectorInputPort("mass_state_input", size=13)  # this is xyz quat state
@@ -57,6 +57,7 @@ def TensileForce_(T):
             mass_state = self.mass_state_input.Eval(context)
             mass_pos = mass_state[4:7]
 
+            # THIS IS PROBABLY WRONG -Tommy
             mass_rot = RotationMatrix_[T](Quaternion_[T](mass_state[0:4] / np.linalg.norm(mass_state[0:4])))
             mass_pos += mass_rot @ self.anchor_displacement
 

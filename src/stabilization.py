@@ -4,6 +4,8 @@ from pydrake.all import (
     Solve,
     Linearize,
     LinearQuadraticRegulator,
+    MakeFiniteHorizonLinearQuadraticRegulator,
+    FiniteHorizonLinearQuadraticRegulatorOptions,
     DiagramBuilder
 )
 
@@ -19,8 +21,6 @@ def find_fixed_point_snopt(diagram):
         prog = MathematicalProgram()
         u = prog.NewContinuousVariables(n_inputs, "u")
         x = prog.NewContinuousVariables(n_outputs, "x")
-
-        prog.AddLinearConstraint(x[-7:-4], np.zeros(3), np.zeros(3))
 
         for i in range(int(n_inputs/4)):
             start = i*6
@@ -65,22 +65,28 @@ def lqr_stabilize_to_point(system_diagram, fixed_point, fixed_control_signal, Q,
     DisableCollisionChecking(sg, context)
     system_diagram.get_input_port(0).FixValue(context, fixed_control_signal)
 
-    linearization = Linearize(system_diagram, context)
-    flag = False
-    if not is_stabilizable(linearization.A(), linearization.B()):
-        flag = True
-        print("Warning: (A, B) is not stabilizable! LQR may not work!", flush=True)
-    if not is_detectable(Q, linearization.A()):
-        flag = True
-        print("Warning: (Q, A) is not detectable! LQR may not work!", flush=True)
+    # linearization = Linearize(system_diagram, context)
+    # flag = False
+    # if not is_stabilizable(linearization.A(), linearization.B()):
+    #     flag = True
+    #     print("Warning: (A, B) is not stabilizable! LQR may not work!", flush=True)
+    # if not is_detectable(Q, linearization.A()):
+    #     flag = True
+    #     print("Warning: (Q, A) is not detectable! LQR may not work!", flush=True)
 
-    if flag:
-        np.savetxt("A.txt", linearization.A())
-        np.savetxt("B.txt", linearization.B())
-        np.savetxt("Q.txt", Q)
-        np.savetxt("R.txt", R)
+    # if flag:
+    #     np.savetxt("A.txt", linearization.A())
+    #     np.savetxt("B.txt", linearization.B())
+    #     np.savetxt("Q.txt", Q)
+    #     np.savetxt("R.txt", R)
 
-    return LinearQuadraticRegulator(system_diagram, context, Q, R)
+    t0 = 0
+    tf = 5
+
+    options = FiniteHorizonLinearQuadraticRegulatorOptions()
+    options.Qf = Q.copy()
+
+    return MakeFiniteHorizonLinearQuadraticRegulator(system_diagram, context, t0, tf, Q, R, options)
 
 def finite_horizon_lqr_stabilize_to_trajectory():
     pass # TODO
