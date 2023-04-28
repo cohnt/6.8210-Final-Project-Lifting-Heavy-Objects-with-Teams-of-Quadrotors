@@ -17,3 +17,10 @@ Registering geometry with the SceneGraph:
 2) Call RegisterVisualGeometry(). Drake has geometric primitives built in: https://drake.mit.edu/doxygen_cxx/classdrake_1_1geometry_1_1_sphere.html#ad4eb22638a3841217373d2caee0d6a74
 
 Then in TensileForce - modify to take in two bodies and output two forces (one on each body) - only need modify the input forces. Make sure the lists are aligned.
+
+Russ has a manual implementation of defining a mathematical program that can solve for arbitrary piecewise-polynomial
+trajectories as the last example of Chp. 3 + Chp. 10 in the underactuated textbook.
+
+# workflow
+The more principled way to go about this is to use a PiecewisePolynomial traj: https://drake.mit.edu/doxygen_cxx/classdrake_1_1trajectories_1_1_piecewise_trajectory.html
+(need to still work out how to solve for one using MathematicalProgram) (ask Tommy about how to do this, since I'd prefer drake's machinery)
