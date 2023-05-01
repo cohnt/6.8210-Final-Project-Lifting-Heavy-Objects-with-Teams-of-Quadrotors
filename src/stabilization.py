@@ -78,7 +78,7 @@ def find_fixed_point_snopt(diagram, limit=None, min_quadrotor_distance=None, min
             x_init[vel_start:vel_start+3] = 0
         prog.SetInitialGuess(x, x_init)
         solver = SnoptSolver()
-        prog.SetSolverOption(solver.solver_id(), "Print file", "snopt_log.txt")
+        # prog.SetSolverOption(solver.solver_id(), "Print file", "snopt_log.txt")
         try:
             result = solver.Solve(prog)
             if result.is_success():
@@ -92,7 +92,7 @@ def find_fixed_point_snopt(diagram, limit=None, min_quadrotor_distance=None, min
 
     return result.GetSolution(x), result.GetSolution(u)
 
-def lqr_stabilize_to_point(system_diagram, fixed_point, fixed_control_signal, Q, R):
+def lqr_stabilize_to_point(system_diagram, fixed_point, fixed_control_signal, Q, R, controller_time_horizon):
     # Constructs an LQR controller for a given system, about a given fixed point with
     # fixed control signal, using the matrices Q and R
 
@@ -118,7 +118,7 @@ def lqr_stabilize_to_point(system_diagram, fixed_point, fixed_control_signal, Q,
     #     np.savetxt("R.txt", R)
 
     t0 = 0
-    tf = 5
+    tf = controller_time_horizon
 
     options = FiniteHorizonLinearQuadraticRegulatorOptions()
     options.Qf = Q.copy()
