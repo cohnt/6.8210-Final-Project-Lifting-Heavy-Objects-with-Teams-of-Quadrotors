@@ -88,21 +88,22 @@ def compute_quad_state_and_control_from_output(mass, inertia, sigma, sigma_dt, s
     omega_dt = np.array([p_dt, q_dt, 0.0])  # TODO: actually solve for r_dt if we actually need it
     u_rest = np.dot(inertia, omega_dt) + np.cross(omega, np.dot(inertia, omega))
 
-    u_all = np.concatenate([np.array([u_first]), u_rest])
+    u_all = np.concatenate([np.array([u_first]), u_rest]) # TODO: this computation is a little suss... try again with
+                                                          # actual quad inertias... unit inertia doesn't give sane results
     return sigma[0:3], rpy, sigma_dt[0:3], omega, u_all
 
 
 def compute_point_mass_state_and_control_from_output(
+        load_mass,
         quad_mass,
         quad_inertia,
         spring_constant,
         mass_position_ds,
         tension_forces_two_to_n_ds,
-        yaws_ds,
-        load_mass
+        yaws_ds
 ):
     """
-    mass_positiosn_ds is a 7-tuple, indexed by derivative order
+    mass_positiosn_ds is a 7-tuple, indexed by derivative order, then by xyz
     tension_forces_two_to_n_ds is a 5-tuple, indexed by derivative order. Elements are 2D arrays,
         first index is quad # 2->n. We assume that the forces are PULLING on the mass load
     yaws_ds is a 5-tuple, indexed by derivative order. Elements are 1D arrays, first index is quad # 1->n
@@ -114,24 +115,24 @@ def compute_point_mass_state_and_control_from_output(
 
     # compute the remaining tension left with force balance
     sum_tension_forces_two_to_n_ds = np.sum(
-        np.hstack(
+        np.array(
             tension_forces_two_to_n_ds
-        ), axis=0
+        ), axis=1
     )
     tension_forces_one_ds = load_mass * mass_position_ds[2:] + sum_tension_forces_two_to_n_ds
-    tension_forces_one_ds[0] -= load_mass * GRAVITY
+    tension_forces_one_ds[0] -= load_mass * GRAVITY # TODO: on sanity trajs, check if there is a sign flip here
 
-    tension_forces_ds = [np.hstack([np.expand_dims(first, 0), two_to_n])
+    tension_forces_ds = [np.vstack([first, two_to_n])
                          for first, two_to_n
-                         in zip(np.split(tension_forces_one_ds), tension_forces_two_to_n_ds)]
+                         in zip(np.split(tension_forces_one_ds, 5), tension_forces_two_to_n_ds)]
 
     # next... compute the unit vectors and tensions
-    tension_dirs = tension_forces_ds[0]
+    tension_forces = tension_forces_ds[0]
 
     # column here to batch mult/div ops and flatten later
     # Solving for zeroth order force data
-    tensions = np.linalg.norm(tension_dirs, axis=1).reshape(-1, 1)
-    dirs = tension_dirs / tensions
+    tensions = np.linalg.norm(tension_forces, axis=1).reshape(-1, 1)
+    dirs = tension_forces / tensions
 
     # Solving for first order force data
     tension_forces_dt = tension_forces_ds[1]
@@ -202,9 +203,55 @@ def compute_point_mass_state_and_control_from_output(
 
     return quad_pos_all, quad_rpy_all, quad_vel_all, quad_omega_all, quad_us_all
 
+
 def _stacked_dot_prod(stack_of_v1, stack_of_v2):
     return np.sum(stack_of_v1 * stack_of_v2, axis=1).reshape(-1, 1)
 
 
 def output_map_factory():
     pass  # TODO, returns a function
+
+
+# for debugging purposes
+if __name__ == '__main__':
+    # for ease:
+    load_dummy_mass = 1
+    quad_dummy_mass = 1
+    quad_dummy_inertia = np.eye(3)
+    spring_dummy_constant = 1
+
+    # we'll test a single timeframe
+    # assume we have three quads, but two of them are balancing the mass already (expecting zero force on the remaining)
+    mass_output = (
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3)
+    )
+
+    tension_forces_output = (
+        np.array([[1.0, 0.0, 1.0],
+                  [-1.0, 0.0, 1.0]]),
+        np.zeros((2, 3)),
+        np.zeros((2, 3)),
+        np.zeros((2, 3)),
+        np.zeros((2, 3))
+    )
+
+    yaws_output = (
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3)
+    )
+
+    quad_pos_all, quad_rpy_all, quad_vel_all, quad_omega_all, quad_us_all \
+        = compute_point_mass_state_and_control_from_output(load_dummy_mass, quad_dummy_mass, quad_dummy_inertia,
+                                                           spring_dummy_constant,
+                                                           mass_output, tension_forces_output, yaws_output)
+
+    # then we can try something a little less trivial (i.e. move the quads in a circle around obj still stable
