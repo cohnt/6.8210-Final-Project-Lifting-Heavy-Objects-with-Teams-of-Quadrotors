@@ -46,13 +46,23 @@ from pydrake.systems.primitives import Adder
 GRAVITY = np.array([0.0, 0.0, -9.81])
 
 
-def compute_quad_state_and_control_from_output(mass, inertia, sigma, sigma_dt, sigma_ddt, sigma_dddt, sigma_ddddt):
+def compute_quad_state_and_control_from_output(
+        kF,
+        kM,
+        arm_length,
+        mass,
+        inertia,
+        sigma,
+        sigma_dt,
+        sigma_ddt,
+        sigma_dddt,
+        sigma_ddddt):
     # COMPUTE ROLL PITCH YAW
     # compute z axis of body frame
     t = np.array(sigma[0:3] - GRAVITY)
     z_b = t / np.linalg.norm(t)
 
-    u_first = mass * np.linalg.norm(t)
+    u_thrust = mass * np.linalg.norm(t)
 
     # x-component rotated inertial frame (world frame) by angle yaw
     x_c = np.array([np.cos(sigma[3]), np.sin(sigma[3]), 0.0])
@@ -70,7 +80,7 @@ def compute_quad_state_and_control_from_output(mass, inertia, sigma, sigma_dt, s
     rpy = np.array([drake_rpy.roll_angle(), drake_rpy.pitch_angle(), drake_rpy.yaw_angle()])
 
     # COMPUTE ANGULAR VELOCITY omega = [p q r]
-    h_omega = mass / u_first * (sigma_dddt[0:3] - (np.dot(z_b, sigma_dddt[0:3]) * z_b))
+    h_omega = mass / u_thrust * (sigma_dddt[0:3] - (np.dot(z_b, sigma_dddt[0:3]) * z_b))
     p = -np.dot(h_omega, y_b)
     q = np.dot(h_omega, x_b)
     r = sigma_dt[2] * z_b[2]
@@ -78,23 +88,36 @@ def compute_quad_state_and_control_from_output(mass, inertia, sigma, sigma_dt, s
 
     # COMPUTE ANGULAR ACCELERATION
     temp = np.cross(omega, np.cross(omega, z_b))
-    h_alpha = mass / u_first * (sigma_ddddt[0:3] - (np.dot(z_b, sigma_ddddt[0:3])) * z_b) \
+    h_alpha = mass / u_thrust * (sigma_ddddt[0:3] - (np.dot(z_b, sigma_ddddt[0:3])) * z_b) \
               + (-temp + np.dot(z_b, temp) * z_b) \
-              - (2 / u_first) * z_b.dot(mass * sigma_dddt[0:3]) * np.cross(omega, z_b)
+              - (2 / u_thrust) * z_b.dot(mass * sigma_dddt[0:3]) * np.cross(omega, z_b)
 
     p_dt = -np.dot(h_alpha, y_b)
     q_dt = np.dot(h_alpha, x_b)
 
     omega_dt = np.array([p_dt, q_dt, 0.0])  # TODO: actually solve for r_dt if we actually need it
-    u_rest = np.dot(inertia, omega_dt) + np.cross(omega, np.dot(inertia, omega))
+    u_moments = np.dot(inertia, omega_dt) + np.cross(omega, np.dot(inertia, omega))
 
-    u_all = np.concatenate([np.array([u_first]), u_rest]) # TODO: this computation is a little suss... try again with
-                                                          # actual quad inertias... unit inertia doesn't give sane results
+    # convert thrust and moments to propeller speeds
+    u_thrust_moments = np.concatenate(
+        [np.array([u_thrust]), u_moments])
+    prop_speeds_to_thrust_and_moments = np.array([
+        [kF, kF, kF, kF],
+        [0.0, kF * arm_length, 0.0, -kF * arm_length],
+        [-kF * arm_length, 0.0, kF * arm_length, 0.0],
+        [kM, -kM, kM, -kM]
+    ])
+    thrust_and_moments_to_prop_speeds = np.linalg.inv(prop_speeds_to_thrust_and_moments)
+    u_all = np.dot(thrust_and_moments_to_prop_speeds, u_thrust_moments)
+
     return sigma[0:3], rpy, sigma_dt[0:3], omega, u_all
 
 
 def compute_point_mass_state_and_control_from_output(
         load_mass,
+        kF,
+        kM,
+        arm_length,
         quad_mass,
         quad_inertia,
         spring_constant,
@@ -120,7 +143,7 @@ def compute_point_mass_state_and_control_from_output(
         ), axis=1
     )
     tension_forces_one_ds = load_mass * mass_position_ds[2:] + sum_tension_forces_two_to_n_ds
-    tension_forces_one_ds[0] -= load_mass * GRAVITY # TODO: on sanity trajs, check if there is a sign flip here
+    tension_forces_one_ds[0] -= load_mass * GRAVITY  # TODO: on sanity trajs, check if there is a sign flip here
 
     tension_forces_ds = [np.vstack([first, two_to_n])
                          for first, two_to_n
@@ -199,7 +222,7 @@ def compute_point_mass_state_and_control_from_output(
     for i, (quad_i_pos_ds, quad_i_yaw_ds) in enumerate(zip(quad_pos_indexed_by_quad, yaws_indexed_by_quad)):
         sigma_ds = np.hstack([quad_i_pos_ds, quad_i_yaw_ds])
         quad_pos_all[i, :], quad_rpy_all[i, :], quad_vel_all[i, :], quad_omega_all[i, :], quad_us_all[i, :] \
-            = compute_quad_state_and_control_from_output(quad_mass, quad_inertia, *sigma_ds)
+            = compute_quad_state_and_control_from_output(kF, kM, arm_length, quad_mass, quad_inertia, *sigma_ds)
 
     return quad_pos_all, quad_rpy_all, quad_vel_all, quad_omega_all, quad_us_all
 
@@ -216,9 +239,12 @@ def output_map_factory():
 if __name__ == '__main__':
     # for ease:
     load_dummy_mass = 1
-    quad_dummy_mass = 1
-    quad_dummy_inertia = np.eye(3)
-    spring_dummy_constant = 1
+    quad_dummy_mass = 0.775
+    quad_dummy_inertia = np.diag([0.0015, 0.0025, 0.0035])
+    dummy_kF = 1.0
+    dummy_kM = 0.0245
+    dummy_arm_length = 0.15
+    spring_dummy_constant = 10
 
     # we'll test a single timeframe
     # assume we have three quads, but two of them are balancing the mass already (expecting zero force on the remaining)
@@ -250,8 +276,14 @@ if __name__ == '__main__':
     )
 
     quad_pos_all, quad_rpy_all, quad_vel_all, quad_omega_all, quad_us_all \
-        = compute_point_mass_state_and_control_from_output(load_dummy_mass, quad_dummy_mass, quad_dummy_inertia,
+        = compute_point_mass_state_and_control_from_output(load_dummy_mass, dummy_kF, dummy_kM, dummy_arm_length,
+                                                           quad_dummy_mass, quad_dummy_inertia,
                                                            spring_dummy_constant,
                                                            mass_output, tension_forces_output, yaws_output)
 
     # then we can try something a little less trivial (i.e. move the quads in a circle around obj still stable
+    print('quad_pos_all: \n' + str(quad_pos_all))
+    print('quad_vel_all: \n' + str(quad_vel_all))
+    print('quad_rpy_all: \n' + str(quad_rpy_all))
+    print('quad_omega_all: \n' + str(quad_omega_all))
+    print('quad_us_all: \n' + str(quad_us_all))
