@@ -125,8 +125,40 @@ def lqr_stabilize_to_point(system_diagram, fixed_point, fixed_control_signal, Q,
 
     return MakeFiniteHorizonLinearQuadraticRegulator(system_diagram, context, t0, tf, Q, R, options)
 
-def finite_horizon_lqr_stabilize_to_trajectory():
-    pass # TODO
+def finite_horizon_lqr_stabilize_to_trajectory(system_diagram, nominal_state_trajectory, nominal_control_trajectory, Q, R):
+    # Constructs a finite horizon LQR controller for a given system, about a given nominal
+    # trajectory, using the matrices Q and R
+
+    context = system_diagram.CreateDefaultContext()
+    # context.SetContinuousState(fixed_point)
+    sg = system_diagram.GetSubsystemByName("scene_graph")
+    DisableCollisionChecking(sg, context)
+    # system_diagram.get_input_port(0).FixValue(context, fixed_control_signal)
+
+    # linearization = Linearize(system_diagram, context)
+    # flag = False
+    # if not is_stabilizable(linearization.A(), linearization.B()):
+    #     flag = True
+    #     print("Warning: (A, B) is not stabilizable! LQR may not work!", flush=True)
+    # if not is_detectable(Q, linearization.A()):
+    #     flag = True
+    #     print("Warning: (Q, A) is not detectable! LQR may not work!", flush=True)
+
+    # if flag:
+    #     np.savetxt("A.txt", linearization.A())
+    #     np.savetxt("B.txt", linearization.B())
+    #     np.savetxt("Q.txt", Q)
+    #     np.savetxt("R.txt", R)
+
+    t0 = 0
+    tf = nominal_state_trajectory.end_time()
+
+    options = FiniteHorizonLinearQuadraticRegulatorOptions()
+    options.Qf = Q.copy()
+    options.x0 = options.xd = nominal_state_trajectory
+    options.u0 = options.ud = nominal_control_trajectory
+
+    return MakeFiniteHorizonLinearQuadraticRegulator(system_diagram, context, t0, tf, Q, R, options)
 
 def mpc_stabilize_to_trajectory():
     pass # TODO
