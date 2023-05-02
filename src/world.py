@@ -16,7 +16,7 @@ from underactuated.scenarios import AddFloatingRpyJoint
 
 from tensile import TensileForce, SpatialForceConcatinator
 
-def make_n_quadrotor_system(meshcat, n, mass=1.0):
+def make_n_quadrotor_system(meshcat, n, cable_length, cable_hooke_K, free_body_mass):
     builder = DiagramBuilder()
     # The MultibodyPlant handles f=ma, but doesn't know about propellers.
     plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step=0.0)
@@ -41,7 +41,7 @@ def make_n_quadrotor_system(meshcat, n, mass=1.0):
 
     # form spatial inertia of floating mass (SpatialInertia factory methods are not available from Python,
     # so we'll need to construct it ourselves)
-    point_inertia = SpatialInertia(mass, np.zeros(3), UnitInertia.SolidSphere(1))
+    point_inertia = SpatialInertia(free_body_mass, np.zeros(3), UnitInertia.SolidSphere(1))
     # print(point_inertia.IsPhysicallyValid())
 
     # create floating mass and register visual geometry with scenegraph so it renders
@@ -76,7 +76,7 @@ def make_n_quadrotor_system(meshcat, n, mass=1.0):
             PropellerInfo(quad_body_index, RigidTransform([-L, 0, 0]), kF, kM),
             PropellerInfo(quad_body_index, RigidTransform([0, -L, 0]), kF, -kM),
         ]
-        tensile_force = builder.AddSystem(TensileForce(2, 10, quad_body_index, mass_body_index, meshcat=meshcat))
+        tensile_force = builder.AddSystem(TensileForce(cable_length, cable_hooke_K, quad_body_index, mass_body_index, meshcat=meshcat))
         builder.Connect(
             plant.get_state_output_port(model_instance),
             tensile_force.quad_state_input
