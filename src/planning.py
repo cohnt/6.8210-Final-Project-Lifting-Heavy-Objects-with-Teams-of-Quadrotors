@@ -142,7 +142,7 @@ def compute_point_mass_state_and_control_from_output(
             tension_forces_two_to_n_ds
         ), axis=1
     )
-    tension_forces_one_ds = load_mass * mass_position_ds[2:] + sum_tension_forces_two_to_n_ds
+    tension_forces_one_ds = load_mass * mass_position_ds[2:] - sum_tension_forces_two_to_n_ds
     tension_forces_one_ds[0] -= load_mass * GRAVITY  # TODO: on sanity trajs, check if there is a sign flip here
 
     tension_forces_ds = [np.vstack([first, two_to_n])
@@ -237,7 +237,7 @@ def output_map_factory():
 
 # for debugging purposes
 if __name__ == '__main__':
-    # for ease:
+    # system constants
     load_dummy_mass = 1
     quad_dummy_mass = 0.775
     quad_dummy_inertia = np.diag([0.0015, 0.0025, 0.0035])
@@ -282,6 +282,89 @@ if __name__ == '__main__':
                                                            mass_output, tension_forces_output, yaws_output)
 
     # then we can try something a little less trivial (i.e. move the quads in a circle around obj still stable
+    print('stable equilibrium')
+    print('quad_pos_all: \n' + str(quad_pos_all))
+    print('quad_vel_all: \n' + str(quad_vel_all))
+    print('quad_rpy_all: \n' + str(quad_rpy_all))
+    print('quad_omega_all: \n' + str(quad_omega_all))
+    print('quad_us_all: \n' + str(quad_us_all))
+
+    mass_output = (
+        np.zeros(3),
+        np.zeros(3),
+        np.array([0.0, 0.0, 1.0]),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3)
+    )
+
+    two_pi_over_three = np.pi * 2 / 3
+    tension_forces_output = (
+        (9.81 + 1) / 3 * np.array([[np.cos(0), np.sin(0), 1.0],
+                                   [np.cos(two_pi_over_three), np.sin(two_pi_over_three), 1.0]]),
+        np.zeros((2, 3)),
+        np.array([[0.0, 0.0, 0.0],
+                  [0.0, 0.0, 0.0]]),
+        np.zeros((2, 3)),
+        np.zeros((2, 3))
+    )
+
+    yaws_output = (
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3)
+    )
+
+    quad_pos_all, quad_rpy_all, quad_vel_all, quad_omega_all, quad_us_all \
+        = compute_point_mass_state_and_control_from_output(load_dummy_mass, dummy_kF, dummy_kM, dummy_arm_length,
+                                                           quad_dummy_mass, quad_dummy_inertia,
+                                                           spring_dummy_constant,
+                                                           mass_output, tension_forces_output, yaws_output)
+    print('\naccelerating upward uniformally')
+    print('quad_pos_all: \n' + str(quad_pos_all))
+    print('quad_vel_all: \n' + str(quad_vel_all))
+    print('quad_rpy_all: \n' + str(quad_rpy_all))
+    print('quad_omega_all: \n' + str(quad_omega_all))
+    print('quad_us_all: \n' + str(quad_us_all))
+
+    mass_output = (
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3)
+    )
+
+    two_pi_over_three = np.pi * 2 / 3
+    tension_forces_output = (
+        9.81 / 3 * np.array([[np.cos(0), np.sin(0), 1.0],
+                             [np.cos(two_pi_over_three), np.sin(two_pi_over_three), 1.0]]),
+        10 * np.array([[-np.sin(0), np.cos(0), 0.0],
+                       [-np.sin(two_pi_over_three), np.cos(two_pi_over_three), 0.0]]),
+        np.zeros((2, 3)),
+        np.zeros((2, 3)),
+        np.zeros((2, 3))
+    )
+
+    yaws_output = (
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3)
+    )
+
+    quad_pos_all, quad_rpy_all, quad_vel_all, quad_omega_all, quad_us_all \
+        = compute_point_mass_state_and_control_from_output(load_dummy_mass, dummy_kF, dummy_kM, dummy_arm_length,
+                                                           quad_dummy_mass, quad_dummy_inertia,
+                                                           spring_dummy_constant,
+                                                           mass_output, tension_forces_output, yaws_output)
+    print('\ncircling')
     print('quad_pos_all: \n' + str(quad_pos_all))
     print('quad_vel_all: \n' + str(quad_vel_all))
     print('quad_rpy_all: \n' + str(quad_rpy_all))
