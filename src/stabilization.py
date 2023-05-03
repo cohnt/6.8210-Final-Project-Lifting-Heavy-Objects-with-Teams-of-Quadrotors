@@ -125,8 +125,23 @@ def lqr_stabilize_to_point(system_diagram, fixed_point, fixed_control_signal, Q,
 
     return MakeFiniteHorizonLinearQuadraticRegulator(system_diagram, context, t0, tf, Q, R, options)
 
-def finite_horizon_lqr_stabilize_to_trajectory():
-    pass # TODO
+def finite_horizon_lqr_stabilize_to_trajectory(system_diagram, nominal_state_trajectory, nominal_control_trajectory, Q, R):
+    # Constructs a finite horizon LQR controller for a given system, about a given nominal
+    # trajectory, using the matrices Q and R
+
+    context = system_diagram.CreateDefaultContext()
+    sg = system_diagram.GetSubsystemByName("scene_graph")
+    DisableCollisionChecking(sg, context)
+
+    t0 = 0
+    tf = nominal_state_trajectory.end_time()
+
+    options = FiniteHorizonLinearQuadraticRegulatorOptions()
+    options.Qf = Q.copy()
+    options.x0 = nominal_state_trajectory
+    options.u0 = nominal_control_trajectory
+
+    return MakeFiniteHorizonLinearQuadraticRegulator(system_diagram, context, t0, tf, Q, R, options)
 
 def mpc_stabilize_to_trajectory():
     pass # TODO
