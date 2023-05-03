@@ -143,7 +143,7 @@ def compute_point_mass_state_and_control_from_output(
         ), axis=1
     )
     tension_forces_one_ds = load_mass * mass_position_ds[2:] - sum_tension_forces_two_to_n_ds
-    tension_forces_one_ds[0] -= load_mass * GRAVITY  # TODO: on sanity trajs, check if there is a sign flip here
+    tension_forces_one_ds[0] -= load_mass * GRAVITY
 
     tension_forces_ds = [np.vstack([first, two_to_n])
                          for first, two_to_n
@@ -225,6 +225,52 @@ def compute_point_mass_state_and_control_from_output(
             = compute_quad_state_and_control_from_output(kF, kM, arm_length, quad_mass, quad_inertia, *sigma_ds)
 
     return quad_pos_all, quad_rpy_all, quad_vel_all, quad_omega_all, quad_us_all
+
+
+# an interesting test case: two quads stay still, but third quad will pull the mass away
+def demo_traj_for_three_quads(load_mass, kF, kM, arm_length, quad_mass, quad_inertia, spring_constant, num_steps=100):
+    tension_output_trajs = [
+        np.array([[1.0, 0.0, 1.0],
+                  [-1.0, 0.0, 1.0]]),
+        np.zeros((2, 3)),
+        np.zeros((2, 3)),
+        np.zeros((2, 3)),
+        np.zeros((2, 3))
+    ]
+
+    yaws_output_trajs = [
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3)
+    ]
+
+    mass_output_trajs = np.array([
+        [
+            np.array([0.0, i * 1.0 / num_steps, 0.0]),
+            np.array([0.0, 1.0 / num_steps, 0.0]),
+            np.zeros(3),
+            np.zeros(3),
+            np.zeros(3),
+            np.zeros(3),
+            np.zeros(3)
+        ] for i in range(num_steps)
+    ])
+
+    quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj = [], [], [], [], []
+    for mass_output, tension_output, yaws_output in zip(mass_output_trajs, tension_output_trajs, yaws_output_trajs):
+        quad_all_pos, quad_all_rpy, quad_all_vel, quad_all_omega, quad_all_us = compute_point_mass_state_and_control_from_output(
+            load_mass, kF, kM, arm_length, quad_mass, quad_inertia,
+            spring_constant, mass_output, tension_output, yaws_output)
+
+        quad_all_pos_traj.append(quad_all_pos)
+        quad_all_rpy_traj.append(quad_all_rpy)
+        quad_all_vel_traj.append(quad_all_vel)
+        quad_all_omega_traj.append(quad_all_omega)
+        quad_all_us_traj.append(quad_all_us)
+
+    return quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj
 
 
 def _stacked_dot_prod(stack_of_v1, stack_of_v2):
@@ -370,3 +416,7 @@ if __name__ == '__main__':
     print('quad_rpy_all: \n' + str(quad_rpy_all))
     print('quad_omega_all: \n' + str(quad_omega_all))
     print('quad_us_all: \n' + str(quad_us_all))
+
+    demo_traj_for_three_quads(load_dummy_mass, dummy_kF, dummy_kM, dummy_arm_length, quad_dummy_mass,
+                              quad_dummy_inertia,
+                              spring_dummy_constant)
