@@ -229,6 +229,10 @@ def compute_point_mass_state_and_control_from_output(
 
 # an interesting test case: two quads stay still, but third quad will pull the mass away
 def demo_traj_for_three_quads(load_mass, kF, kM, arm_length, quad_mass, quad_inertia, spring_constant, num_steps=100):
+    """Moves 1 meter in the y direction, with increments split over num_steps (i'm not sure
+    at what timescale we are using so I included that degree of freedom so you can
+    set a reasonable timestep)
+    """
     tension_output_trajs = [
         np.array([[1.0, 0.0, 1.0],
                   [-1.0, 0.0, 1.0]]),
