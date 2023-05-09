@@ -98,201 +98,195 @@ class PPTrajectory:
 GRAVITY = np.array([0.0, 0.0, -9.81])
 
 
-# TODO: wrap everything in a class so we don't need to enter constants all the time
-# then link up utility methods in a sane way so that typical util calls can be sequenced automatically
+class DifferentialFlatness:
+    def __int__(self, load_mass, spring_constant, force_constant, moment_constant, arm_length, quad_mass, quad_inertia):
+        self.load_mass = load_mass
+        self.kF = force_constant
+        self.spring_constant = spring_constant
+        self.kM = moment_constant
+        self.arm_length = arm_length
+        self.quad_mass = quad_mass
+        self.quad_inertia = quad_inertia
 
-def compute_quad_state_and_control_from_output(
-        kF,
-        kM,
-        arm_length,
-        mass,
-        inertia,
-        sigma,
-        sigma_dt,
-        sigma_ddt,
-        sigma_dddt,
-        sigma_ddddt):
-    # COMPUTE ROLL PITCH YAW
-    # compute z axis of body frame
-    t = np.array(sigma[0:3] - GRAVITY)
-    z_b = t / np.linalg.norm(t)
+    def compute_quad_state_and_control_from_output(self,
+                                                   sigma,
+                                                   sigma_dt,
+                                                   sigma_ddt,
+                                                   sigma_dddt,
+                                                   sigma_ddddt):
+        # COMPUTE ROLL PITCH YAW
+        # compute z axis of body frame
+        t = np.array(sigma[0:3] - GRAVITY)
+        z_b = t / np.linalg.norm(t)
 
-    u_thrust = mass * np.linalg.norm(t)
+        u_thrust = self.quad_mass * np.linalg.norm(t)
 
-    # x-component rotated inertial frame (world frame) by angle yaw
-    x_c = np.array([np.cos(sigma[3]), np.sin(sigma[3]), 0.0])
+        # x-component rotated inertial frame (world frame) by angle yaw
+        x_c = np.array([np.cos(sigma[3]), np.sin(sigma[3]), 0.0])
 
-    # find the rest of body frame basis vectors
-    y_b_unnormed = np.cross(z_b, x_c)
-    y_b = y_b_unnormed / np.linalg.norm(y_b_unnormed)
-    x_b = np.cross(y_b, z_b)
+        # find the rest of body frame basis vectors
+        y_b_unnormed = np.cross(z_b, x_c)
+        y_b = y_b_unnormed / np.linalg.norm(y_b_unnormed)
+        x_b = np.cross(y_b, z_b)
 
-    # construct a rotation matrix and then convert to rpy
-    R_WB = RotationMatrix(R=np.hstack([
-        x_b.reshape(-1, 1), y_b.reshape(-1, 1), z_b.reshape(-1, 1)
-    ]))
-    drake_rpy = R_WB.ToRollPitchYaw()
-    rpy = np.array([drake_rpy.roll_angle(), drake_rpy.pitch_angle(), drake_rpy.yaw_angle()])
+        # construct a rotation matrix and then convert to rpy
+        R_WB = RotationMatrix(R=np.hstack([
+            x_b.reshape(-1, 1), y_b.reshape(-1, 1), z_b.reshape(-1, 1)
+        ]))
+        drake_rpy = R_WB.ToRollPitchYaw()
+        rpy = np.array([drake_rpy.roll_angle(), drake_rpy.pitch_angle(), drake_rpy.yaw_angle()])
 
-    # COMPUTE ANGULAR VELOCITY omega = [p q r]
-    h_omega = mass / u_thrust * (sigma_dddt[0:3] - (np.dot(z_b, sigma_dddt[0:3]) * z_b))
-    p = -np.dot(h_omega, y_b)
-    q = np.dot(h_omega, x_b)
-    r = sigma_dt[2] * z_b[2]
-    omega = np.array([p, q, r])
+        # COMPUTE ANGULAR VELOCITY omega = [p q r]
+        h_omega = self.quad_mass / u_thrust * (sigma_dddt[0:3] - (np.dot(z_b, sigma_dddt[0:3]) * z_b))
+        p = -np.dot(h_omega, y_b)
+        q = np.dot(h_omega, x_b)
+        r = sigma_dt[2] * z_b[2]
+        omega = np.array([p, q, r])
 
-    # COMPUTE ANGULAR ACCELERATION
-    temp = np.cross(omega, np.cross(omega, z_b))
-    h_alpha = mass / u_thrust * (sigma_ddddt[0:3] - (np.dot(z_b, sigma_ddddt[0:3])) * z_b) \
-              + (-temp + np.dot(z_b, temp) * z_b) \
-              - (2 / u_thrust) * z_b.dot(mass * sigma_dddt[0:3]) * np.cross(omega, z_b)
+        # COMPUTE ANGULAR ACCELERATION
+        temp = np.cross(omega, np.cross(omega, z_b))
+        h_alpha = self.quad_mass / u_thrust * (sigma_ddddt[0:3] - (np.dot(z_b, sigma_ddddt[0:3])) * z_b) \
+                  + (-temp + np.dot(z_b, temp) * z_b) \
+                  - (2 / u_thrust) * z_b.dot(self.quad_mass * sigma_dddt[0:3]) * np.cross(omega, z_b)
 
-    p_dt = -np.dot(h_alpha, y_b)
-    q_dt = np.dot(h_alpha, x_b)
+        p_dt = -np.dot(h_alpha, y_b)
+        q_dt = np.dot(h_alpha, x_b)
 
-    omega_dt = np.array([p_dt, q_dt, 0.0])  # TODO: actually solve for r_dt if we actually need it
-    u_moments = np.dot(inertia, omega_dt) + np.cross(omega, np.dot(inertia, omega))
+        omega_dt = np.array([p_dt, q_dt, 0.0])  # TODO: actually solve for r_dt if we actually need it
+        u_moments = np.dot(self.quad_inertia, omega_dt) + np.cross(omega, np.dot(self.quad_inertia, omega))
 
-    # convert thrust and moments to propeller speeds
-    u_thrust_moments = np.concatenate(
-        [np.array([u_thrust]), u_moments])
-    prop_speeds_to_thrust_and_moments = np.array([
-        [kF, kF, kF, kF],
-        [0.0, kF * arm_length, 0.0, -kF * arm_length],
-        [-kF * arm_length, 0.0, kF * arm_length, 0.0],
-        [kM, -kM, kM, -kM]
-    ])
-    thrust_and_moments_to_prop_speeds = np.linalg.inv(prop_speeds_to_thrust_and_moments)
-    u_all = np.dot(thrust_and_moments_to_prop_speeds, u_thrust_moments)
+        # convert thrust and moments to propeller speeds
+        u_thrust_moments = np.concatenate(
+            [np.array([u_thrust]), u_moments])
+        prop_speeds_to_thrust_and_moments = np.array([
+            [self.kF, self.kF, self.kF, self.kF],
+            [0.0, self.kF * self.arm_length, 0.0, -self.kF * self.arm_length],
+            [-self.kF * self.arm_length, 0.0, self.kF * self.arm_length, 0.0],
+            [self.kM, -self.kM, self.kM, -self.kM]
+        ])
+        thrust_and_moments_to_prop_speeds = np.linalg.inv(prop_speeds_to_thrust_and_moments)
+        u_all = np.dot(thrust_and_moments_to_prop_speeds, u_thrust_moments)
 
-    return sigma[0:3], rpy, sigma_dt[0:3], omega, u_all
+        return sigma[0:3], rpy, sigma_dt[0:3], omega, u_all
 
-
-def compute_point_mass_state_and_control_from_output(
-        load_mass,
-        kF,
-        kM,
-        arm_length,
-        quad_mass,
-        quad_inertia,
-        spring_constant,
-        mass_position_ds,
-        tension_forces_two_to_n_ds,
-        yaws_ds
-):
-    """
-    mass_positiosn_ds is a 7-tuple, indexed by derivative order, then by xyz
-    tension_forces_two_to_n_ds is a 5-tuple, indexed by derivative order. Elements are 2D arrays,
+    def compute_point_mass_state_and_control_from_output(
+            self,
+            mass_position_ds,
+            tension_forces_two_to_n_ds,
+            yaws_ds
+    ):
+        """
+        mass_positiosn_ds is a 7-tuple, indexed by derivative order, then by xyz
+        tension_forces_two_to_n_ds is a 5-tuple, indexed by derivative order. Elements are 2D arrays,
         first index is quad # 2->n. We assume that the forces are PULLING on the mass load
-    yaws_ds is a 5-tuple, indexed by derivative order. Elements are 1D arrays, first index is quad # 1->n
-    """
+        yaws_ds is a 5-tuple, indexed by derivative order. Elements are 1D arrays, first index is quad # 1->n
+        """
 
-    assert len(mass_position_ds) == 7
-    assert len(tension_forces_two_to_n_ds) == 5
-    assert len(yaws_ds) == 5
+        assert len(mass_position_ds) == 7
+        assert len(tension_forces_two_to_n_ds) == 5
+        assert len(yaws_ds) == 5
 
-    # compute the remaining tension left with force balance
-    sum_tension_forces_two_to_n_ds = np.sum(
-        np.array(
-            tension_forces_two_to_n_ds
-        ), axis=1
-    )
-    tension_forces_one_ds = load_mass * mass_position_ds[2:] - sum_tension_forces_two_to_n_ds
-    tension_forces_one_ds[0] -= load_mass * GRAVITY
+        # compute the remaining tension left with force balance
+        sum_tension_forces_two_to_n_ds = np.sum(
+            np.array(
+                tension_forces_two_to_n_ds
+            ), axis=1
+        )
+        tension_forces_one_ds = self.load_mass * mass_position_ds[2:] - sum_tension_forces_two_to_n_ds
+        tension_forces_one_ds[0] -= self.load_mass * GRAVITY
 
-    tension_forces_ds = [np.vstack([first, two_to_n])
-                         for first, two_to_n
-                         in zip(np.split(tension_forces_one_ds, 5), tension_forces_two_to_n_ds)]
+        tension_forces_ds = [np.vstack([first, two_to_n])
+                             for first, two_to_n
+                             in zip(np.split(tension_forces_one_ds, 5), tension_forces_two_to_n_ds)]
 
-    # next... compute the unit vectors and tensions
-    tension_forces = tension_forces_ds[0]
+        # next... compute the unit vectors and tensions
+        tension_forces = tension_forces_ds[0]
 
-    # column here to batch mult/div ops and flatten later
-    # Solving for zeroth order force data
-    tensions = np.linalg.norm(tension_forces, axis=1).reshape(-1, 1)
-    dirs = tension_forces / tensions
+        # column here to batch mult/div ops and flatten later
+        # Solving for zeroth order force data
+        tensions = np.linalg.norm(tension_forces, axis=1).reshape(-1, 1)
+        dirs = tension_forces / tensions
 
-    # Solving for first order force data
-    tension_forces_dt = tension_forces_ds[1]
-    tensions_dt = _stacked_dot_prod(tension_forces_dt, dirs)  # `vectorized dot product across all forces'
-    dirs_dt = (tension_forces_dt - tensions_dt * dirs) / tensions
+        # Solving for first order force data
+        tension_forces_dt = tension_forces_ds[1]
+        tensions_dt = _stacked_dot_prod(tension_forces_dt, dirs)  # `vectorized dot product across all forces'
+        dirs_dt = (tension_forces_dt - tensions_dt * dirs) / tensions
 
-    # Solving for second order force data
-    tension_forces_ddt = tension_forces_ds[2]
-    tensions_ddt = _stacked_dot_prod(tension_forces_ddt, dirs) + _stacked_dot_prod(tension_forces_dt, dirs_dt)
-    dirs_ddt = (
-                       tension_forces_ddt
-                       - tensions_ddt * dirs
-                       - 2 * tensions_dt * dirs_dt
-               ) / tensions
+        # Solving for second order force data
+        tension_forces_ddt = tension_forces_ds[2]
+        tensions_ddt = _stacked_dot_prod(tension_forces_ddt, dirs) + _stacked_dot_prod(tension_forces_dt, dirs_dt)
+        dirs_ddt = (
+                           tension_forces_ddt
+                           - tensions_ddt * dirs
+                           - 2 * tensions_dt * dirs_dt
+                   ) / tensions
 
-    # solving for third order force data
-    tension_forces_dddt = tension_forces_ds[3]
-    tensions_dddt = _stacked_dot_prod(tension_forces_dddt, dirs) \
-                    + 2 * _stacked_dot_prod(tension_forces_ddt, dirs_dt) \
-                    + _stacked_dot_prod(tension_forces_dt, dirs_ddt)
-    dirs_dddt = (
-                        tension_forces_dddt
-                        - tensions_dddt * dirs
-                        - 3 * tensions_ddt * dirs_dt
-                        - 3 * tensions_dt * dirs_ddt
-                ) / tensions
+        # solving for third order force data
+        tension_forces_dddt = tension_forces_ds[3]
+        tensions_dddt = _stacked_dot_prod(tension_forces_dddt, dirs) \
+                        + 2 * _stacked_dot_prod(tension_forces_ddt, dirs_dt) \
+                        + _stacked_dot_prod(tension_forces_dt, dirs_ddt)
+        dirs_dddt = (
+                            tension_forces_dddt
+                            - tensions_dddt * dirs
+                            - 3 * tensions_ddt * dirs_dt
+                            - 3 * tensions_dt * dirs_ddt
+                    ) / tensions
 
-    tension_forces_ddddt = tension_forces_ds[4]
-    tensions_ddddt = _stacked_dot_prod(tension_forces_ddddt, dirs) \
-                     + 3 * _stacked_dot_prod(tension_forces_dddt, dirs_dt) \
-                     + 3 * _stacked_dot_prod(tension_forces_ddt, dirs_ddt) \
-                     + _stacked_dot_prod(tension_forces_dt, dirs_dddt)
-    dirs_ddddt = (
-                         tensions_ddddt
-                         - tensions_ddddt * dirs
-                         - 4 * tensions_dddt * dirs_dt
-                         - 6 * tensions_ddt * dirs_ddt
-                         - 4 * tensions_dt * dirs_dddt
-                 ) / tensions
+        tension_forces_ddddt = tension_forces_ds[4]
+        tensions_ddddt = _stacked_dot_prod(tension_forces_ddddt, dirs) \
+                         + 3 * _stacked_dot_prod(tension_forces_dddt, dirs_dt) \
+                         + 3 * _stacked_dot_prod(tension_forces_ddt, dirs_ddt) \
+                         + _stacked_dot_prod(tension_forces_dt, dirs_dddt)
+        dirs_ddddt = (
+                             tensions_ddddt
+                             - tensions_ddddt * dirs
+                             - 4 * tensions_dddt * dirs_dt
+                             - 6 * tensions_ddt * dirs_ddt
+                             - 4 * tensions_dt * dirs_dddt
+                     ) / tensions
 
-    # next, we solve for the poses of the quad coms using Hooke's spring law. here, we make the assumption
-    # that the forces are PULLING on the mass load.
+        # next, we solve for the poses of the quad coms using Hooke's spring law. here, we make the assumption
+        # that the forces are PULLING on the mass load.
 
-    # since the general form of the equation is the same, we solve in a list comprehension
-    quad_position_ds = [
-        tension_forces_di / spring_constant + mass_position_di
-        for tension_forces_di, mass_position_di in zip(tension_forces_ds, mass_position_ds)
-    ]
+        # since the general form of the equation is the same, we solve in a list comprehension
+        quad_position_ds = [
+            tension_forces_di / self.spring_constant + mass_position_di
+            for tension_forces_di, mass_position_di in zip(tension_forces_ds, mass_position_ds)
+        ]
 
-    # next, we solve the quad control inputs using the quad differential flatness
+        # next, we solve the quad control inputs using the quad differential flatness
 
-    # currently, the arrays are indexed by [order of deriv] X [number quad] X [state index]
-    # we'll swap the indices so that we can iterate over them (i.e. [number quad] X [order of deriv] X [state index])
-    quad_pos_indexed_by_quad = np.swapaxes(np.array(quad_position_ds), 0, 1)
-    yaws_indexed_by_quad = np.swapaxes(np.expand_dims(yaws_ds, 2), 0, 1)
+        # currently, the arrays are indexed by [order of deriv] X [number quad] X [state index]
+        # we'll swap the indices so that we can iterate over them (i.e. [number quad] X [order of deriv] X [state index])
+        quad_pos_indexed_by_quad = np.swapaxes(np.array(quad_position_ds), 0, 1)
+        yaws_indexed_by_quad = np.swapaxes(np.expand_dims(yaws_ds, 2), 0, 1)
 
-    n_quad = len(quad_pos_indexed_by_quad)
-    quad_pos_all = np.zeros((n_quad, 3))
-    quad_rpy_all = np.zeros((n_quad, 3))
-    quad_vel_all = np.zeros((n_quad, 3))
-    quad_omega_all = np.zeros((n_quad, 3))
-    quad_us_all = np.zeros((n_quad, 4))
+        n_quad = len(quad_pos_indexed_by_quad)
+        quad_pos_all = np.zeros((n_quad, 3))
+        quad_rpy_all = np.zeros((n_quad, 3))
+        quad_vel_all = np.zeros((n_quad, 3))
+        quad_omega_all = np.zeros((n_quad, 3))
+        quad_us_all = np.zeros((n_quad, 4))
 
-    for i, (quad_i_pos_ds, quad_i_yaw_ds) in enumerate(zip(quad_pos_indexed_by_quad, yaws_indexed_by_quad)):
-        sigma_ds = np.hstack([quad_i_pos_ds, quad_i_yaw_ds])
-        quad_pos_all[i, :], quad_rpy_all[i, :], quad_vel_all[i, :], quad_omega_all[i, :], quad_us_all[i, :] \
-            = compute_quad_state_and_control_from_output(kF, kM, arm_length, quad_mass, quad_inertia, *sigma_ds)
+        for i, (quad_i_pos_ds, quad_i_yaw_ds) in enumerate(zip(quad_pos_indexed_by_quad, yaws_indexed_by_quad)):
+            sigma_ds = np.hstack([quad_i_pos_ds, quad_i_yaw_ds])
+            quad_pos_all[i, :], quad_rpy_all[i, :], quad_vel_all[i, :], quad_omega_all[i, :], quad_us_all[i, :] \
+                = self.compute_quad_state_and_control_from_output(*sigma_ds)
 
-    return quad_pos_all, quad_rpy_all, quad_vel_all, quad_omega_all, quad_us_all
+        return quad_pos_all, quad_rpy_all, quad_vel_all, quad_omega_all, quad_us_all
 
+    def state_to_output(self, mass_pos, quad_poses, quad_yaws):
+        """
+        Given a state, (assuming ZERO YAW on quads), output corresponding output.
+        The Yaw is zero since the details in Mellinger's thesis were missing to implement
+        them faithfully.
 
-def state_to_output(spring_constant, mass_pos, quad_poses, quad_yaws):
-    """
-    Given a state, (assuming ZERO YAW on quads), output corresponding output.
-    The Yaw is zero since the details in Mellinger's thesis were missing to implement
-    them faithfully.
-
-    We're assuming that quad_poses are indexed num quad (0,..., n-1) X quad pos (XYZ)
-    and load mass is indexed as (3,) vector (XYZ)
-    """
-    tension_output = spring_constant * (quad_poses - mass_pos)
-    return mass_pos, tension_output, quad_yaws
+        We're assuming that quad_poses are indexed num quad (0,..., n-1) X quad pos (XYZ)
+        and load mass is indexed as (3,) vector (XYZ)
+        """
+        tension_output = self.spring_constant * (quad_poses - mass_pos)
+        return mass_pos, tension_output, quad_yaws
 
 
 def straight_trajectory_from_outputA_to_outputB(mass_output_A,
@@ -311,7 +305,7 @@ def straight_trajectory_from_outputA_to_outputB(mass_output_A,
 
     assert mass_output_A.shape == (3,) and mass_output_B.shape == (3,)
     assert tension_output_A.shape[1] == 3 and tension_output_B.shape[1] == 3
-    assert np.isclose(yaw_output_A, yaw_output_B) # we don't handle changes in yaw that well
+    assert np.isclose(yaw_output_A, yaw_output_B)  # we don't handle changes in yaw that well
 
     n_output = 3 + tension_output_A.size
     n_quad = tension_output_A.shape[0] + 1
