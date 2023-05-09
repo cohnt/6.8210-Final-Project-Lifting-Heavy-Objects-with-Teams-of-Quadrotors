@@ -1,43 +1,95 @@
 import numpy as np
-import pydot
-import pydrake
+import math
 from pydrake.all import (
-    DiagramBuilder,
-    MultibodyPlant,
-    Parser,
-    Propeller,
-    PropellerInfo,
-    RigidTransform,
-    StartMeshcat,
-    MeshcatVisualizer,
-    SceneGraph,
-    Simulator,
-    AddMultibodyPlantSceneGraph,
-    LeafSystem,
-    LeafSystem_,
-    ExternallyAppliedSpatialForce,
-    ExternallyAppliedSpatialForce_,
-    TemplateSystem,
-    AbstractValue,
-    SpatialForce,
-    SpatialForce_,
-    SpatialInertia,
-    UnitInertia,
-    CollisionFilterDeclaration,
-    GeometrySet,
     RotationMatrix,
-    Sphere
+    MathematicalProgram,
+    Solve
 )
-from pydrake.examples import (
-    QuadrotorGeometry
-)
-from IPython.display import display, SVG, Image
 
-from underactuated.scenarios import AddFloatingRpyJoint
 
-from tensile import TensileForce, SpatialForceConcatinator
+class PPTrajectory:
+    def __init__(self, sample_times, num_vars, degree, continuity_degree):
+        self.sample_times = sample_times
+        self.n = num_vars
+        self.degree = degree
 
-from pydrake.systems.primitives import Adder
+        self.prog = MathematicalProgram()
+        self.coeffs = []
+        for i in range(len(sample_times)):
+            self.coeffs.append(
+                self.prog.NewContinuousVariables(num_vars, degree + 1, "C")
+            )
+        self.result = None
+
+        # Add continuity constraints
+        for s in range(len(sample_times) - 1):
+            trel = sample_times[s + 1] - sample_times[s]
+            coeffs = self.coeffs[s]
+            for var in range(self.n):
+                for deg in range(continuity_degree + 1):
+                    # Don't use eval here, because I want left and right
+                    # values of the same time
+                    left_val = 0
+                    for d in range(deg, self.degree + 1):
+                        left_val += (
+                                coeffs[var, d]
+                                * np.power(trel, d - deg)
+                                * math.factorial(d)
+                                / math.factorial(d - deg)
+                        )
+                    right_val = self.coeffs[s + 1][var, deg] * math.factorial(
+                        deg
+                    )
+                    self.prog.AddLinearConstraint(left_val == right_val)
+
+        # Add cost to minimize highest order terms
+        for s in range(len(sample_times) - 1):
+            self.prog.AddQuadraticCost(
+                np.eye(num_vars),
+                np.zeros((num_vars, 1)),
+                self.coeffs[s][:, -1],
+            )
+
+    def eval(self, t, derivative_order=0):
+        if derivative_order > self.degree:
+            return 0
+
+        s = 0
+        while s < len(self.sample_times) - 1 and t >= self.sample_times[s + 1]:
+            s += 1
+        trel = t - self.sample_times[s]
+
+        if self.result is None:
+            coeffs = self.coeffs[s]
+        else:
+            coeffs = self.result.GetSolution(self.coeffs[s])
+
+        deg = derivative_order
+        val = 0 * coeffs[:, 0]
+        for var in range(self.n):
+            for d in range(deg, self.degree + 1):
+                val[var] += (
+                        coeffs[var, d]
+                        * np.power(trel, d - deg)
+                        * math.factorial(d)
+                        / math.factorial(d - deg)
+                )
+
+        return val
+
+    def add_constraint(self, t, derivative_order, lb, ub=None):
+        """Adds a constraint of the form d^deg lb <= x(t) / dt^deg <= ub."""
+        if ub is None:
+            ub = lb
+
+        assert derivative_order <= self.degree
+        val = self.eval(t, derivative_order)
+        self.prog.AddLinearConstraint(val, lb, ub)
+
+    def generate(self):
+        self.result = Solve(self.prog)
+        assert self.result.is_success()
+
 
 # Thanks Bernhard for presenting a sane way to do the computation!
 # (We are using notation from Mellinger's thesis for variable names)
@@ -45,6 +97,9 @@ from pydrake.systems.primitives import Adder
 
 GRAVITY = np.array([0.0, 0.0, -9.81])
 
+
+# TODO: wrap everything in a class so we don't need to enter constants all the time
+# then link up utility methods in a sane way so that typical util calls can be sequenced automatically
 
 def compute_quad_state_and_control_from_output(
         kF,
@@ -227,6 +282,85 @@ def compute_point_mass_state_and_control_from_output(
     return quad_pos_all, quad_rpy_all, quad_vel_all, quad_omega_all, quad_us_all
 
 
+def state_to_output(spring_constant, mass_pos, quad_poses, quad_yaws):
+    """
+    Given a state, (assuming ZERO YAW on quads), output corresponding output.
+    The Yaw is zero since the details in Mellinger's thesis were missing to implement
+    them faithfully.
+
+    We're assuming that quad_poses are indexed num quad (0,..., n-1) X quad pos (XYZ)
+    and load mass is indexed as (3,) vector (XYZ)
+    """
+    tension_output = spring_constant * (quad_poses - mass_pos)
+    return mass_pos, tension_output, quad_yaws
+
+
+def straight_trajectory_from_outputA_to_outputB(mass_output_A,
+                                                tension_output_A,
+                                                yaw_output_A,
+                                                mass_output_B,
+                                                yaw_output_B,
+                                                tension_output_B,
+                                                tf=3.0, delta_t=0.1):
+    """
+    Mass output: (3,) (XYZ)
+    Tension output index: num_quad (0, ..., n-2) X force component (XYZ)
+    Yaw output index: num_quad (0, ..., n-1)
+    We not include yaw output since
+    """
+
+    assert mass_output_A.shape == (3,) and mass_output_B.shape == (3,)
+    assert tension_output_A.shape[1] == 3 and tension_output_B.shape[1] == 3
+    assert np.isclose(yaw_output_A, yaw_output_B) # we don't handle changes in yaw that well
+
+    n_output = 3 + tension_output_A.size
+    n_quad = tension_output_A.shape[0] + 1
+
+    zpp_traj = PPTrajectory(
+        sample_times=np.linspace(0, tf, 3),
+        num_vars=n_output,
+        degree=7,
+        continuity_degree=6
+    )
+
+    zpp_traj.add_constraint(t=0, derivative_order=0,
+                            lb=np.concatenate(
+                                [mass_output_A, tension_output_A.flatten(order='C')]))  # row-major flatten
+    zpp_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(n_output))
+    zpp_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(n_output))
+
+    zpp_traj.add_constraint(t=tf, derivative_order=0,
+                            lb=np.concatenate([mass_output_B, tension_output_B.flatten(order='C')]))
+    zpp_traj.add_constraint(t=tf, derivative_order=1, lb=np.zeros(n_output))
+    zpp_traj.add_constraint(t=tf, derivative_order=2, lb=np.zeros(n_output))
+
+    zpp_traj.generate()
+
+    n_t = math.ceil(tf / delta_t)
+    ts = np.linspace(0, tf, n_t)
+
+    # construct output trajectories in the format that compute_...state_and_control() expects.
+    # indexing for mass: time X derivative_order X mass state var (XYZ)
+    # indexing for tensions: time X derivative_order X quad # (1, ..., n) X tension vect state var (XYZ)
+    # indexing for yaws: time X derivative_order X quad # (0, ..., n)
+
+    mass_position_ds = np.zeros((n_t, 7, 3))
+    tension_forces_ds = np.zeros((n_t, 5, n_quad - 1, 3))
+    yaws_ds = np.zeros((n_t, 5, n_quad))
+    yaws_ds[0, :] = yaw_output_A
+
+    for t in range(ts):
+        # confirm that this reshape is correct
+
+        for i in range(7):
+            mass_position_ds[t, i, :] = zpp_traj.eval(t, derivative_order=i)[:3]
+
+        for i in range(5):
+            tension_forces_ds[t, i, :, :] = zpp_traj.eval(t, derivative_order=i)[3:]
+
+    return mass_position_ds, tension_forces_ds, yaws_ds
+
+
 # an interesting test case: two quads stay still, but third quad will pull the mass away
 def demo_traj_for_three_quads(load_mass, kF, kM, arm_length, quad_mass, quad_inertia, spring_constant, num_steps=100):
     """Moves 1 meter in the y direction, with increments split over num_steps (i'm not sure
@@ -279,10 +413,6 @@ def demo_traj_for_three_quads(load_mass, kF, kM, arm_length, quad_mass, quad_ine
 
 def _stacked_dot_prod(stack_of_v1, stack_of_v2):
     return np.sum(stack_of_v1 * stack_of_v2, axis=1).reshape(-1, 1)
-
-
-def output_map_factory():
-    pass  # TODO, returns a function
 
 
 # for debugging purposes
