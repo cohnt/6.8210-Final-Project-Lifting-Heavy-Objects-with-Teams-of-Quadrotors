@@ -347,7 +347,13 @@ def demo_traj_for_three_quads(load_mass, kF, kM, arm_length, quad_mass, quad_ine
     quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj = \
         output_backer.output_traj_to_state_traj(mass_output_trajs, tension_output_trajs, yaws_output_trajs)
 
-    return quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj
+    mass_pos_traj = [mass_output_trajs[i][0] for i in range(len(mass_output_trajs))]
+    mass_vel_traj = [mass_output_trajs[i][1] for i in range(len(mass_output_trajs))]
+    mass_quat_traj = [np.array([1, 0, 0, 0]) for i in range(len(mass_output_trajs))]
+    mass_omega_traj = [np.zeros(3) for i in range(len(mass_output_trajs))]
+
+    return quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj,\
+           mass_pos_traj, mass_vel_traj, mass_quat_traj, mass_omega_traj
 
 
 def straight_trajectory_from_outputA_to_outputB(mass_outputA,
