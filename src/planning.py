@@ -313,22 +313,23 @@ def demo_traj_for_three_quads(load_mass, kF, kM, arm_length, quad_mass, quad_ine
     set a reasonable timestep)
     """
 
-    tension_output_trajs = [
-        np.array([[1.0, 0.0, 1.0],
-                  [-1.0, 0.0, 1.0]]),
+    two_pi_over_three = 2 * np.pi / 3
+    tension_output_trajs = np.array([[
+        (9.81 + 1) / 3 * np.array([[np.cos(0), np.sin(0), 1.0],
+                                   [np.cos(two_pi_over_three), np.sin(two_pi_over_three), 1.0]]),
         np.zeros((2, 3)),
         np.zeros((2, 3)),
         np.zeros((2, 3)),
         np.zeros((2, 3))
-    ]
+    ] for _ in range(num_steps)])
 
-    yaws_output_trajs = [
+    yaws_output_trajs = np.array([[
         np.zeros(3),
         np.zeros(3),
         np.zeros(3),
         np.zeros(3),
         np.zeros(3)
-    ]
+    ] for _ in range(num_steps)])
 
     mass_output_trajs = np.array([
         [
@@ -342,7 +343,7 @@ def demo_traj_for_three_quads(load_mass, kF, kM, arm_length, quad_mass, quad_ine
         ] for i in range(num_steps)
     ])
 
-    output_backer = DifferentialFlatness(load_mass, kF, kM, arm_length, quad_mass, quad_inertia, spring_constant)
+    output_backer = DifferentialFlatness(load_mass, spring_constant, kF, kM, arm_length, quad_mass, quad_inertia)
     quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj = \
         output_backer.output_traj_to_state_traj(mass_output_trajs, tension_output_trajs, yaws_output_trajs)
 
@@ -572,6 +573,11 @@ if __name__ == '__main__':
     tension_forces = tension_forces_output[0]
     yaws = yaws_output[0]
 
+
+    demo_traj_for_three_quads(load_dummy_mass, dummy_kF, dummy_kM, dummy_arm_length,
+                              quad_dummy_mass, quad_dummy_inertia, spring_dummy_constant)
+
+    # TODO: debug MathematicalProgram solve
     mass_posB = mass_output[1] + np.array([1.0, 0.0, 0.0])
     mass_pos_ds, tension_forces_ds, yaws_ds = straight_trajectory_from_outputA_to_outputB(
         mass_posA, tension_forces, yaws, mass_posB, tension_forces, yaws, tf=5)
