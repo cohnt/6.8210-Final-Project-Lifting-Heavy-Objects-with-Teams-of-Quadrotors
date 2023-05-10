@@ -88,7 +88,7 @@ class PPTrajectory:
 
     def generate(self):
         self.result = Solve(self.prog)
-        assert self.result.is_success()
+        assert self.result.is_success(), self.result.get_solver_details()
 
 
 # Thanks Bernhard for presenting a sane way to do the computation!
@@ -289,6 +289,65 @@ class DifferentialFlatness:
         tension_output = self.spring_constant * (quad_poses - mass_pos)
         return mass_pos, tension_output, quad_yaws
 
+    def output_traj_to_state_traj(self, mass_output_trajs, tension_output_trajs, yaws_output_trajs):
+        quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj = [], [], [], [], []
+        for mass_output, tension_output, yaws_output in zip(mass_output_trajs, tension_output_trajs, yaws_output_trajs):
+            quad_all_pos, quad_all_rpy, quad_all_vel, quad_all_omega, quad_all_us = \
+                self.compute_point_mass_state_and_control_from_output(
+                    mass_output,
+                    tension_output,
+                    yaws_output)
+
+            quad_all_pos_traj.append(quad_all_pos)
+            quad_all_rpy_traj.append(quad_all_rpy)
+            quad_all_vel_traj.append(quad_all_vel)
+            quad_all_omega_traj.append(quad_all_omega)
+            quad_all_us_traj.append(quad_all_us)
+
+        return quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj
+
+
+def demo_traj_for_three_quads(load_mass, kF, kM, arm_length, quad_mass, quad_inertia, spring_constant, num_steps=100):
+    """Moves 1 meter in the y direction, with increments split over num_steps (i'm not sure
+    at what timescale we are using so I included that degree of freedom so you can
+    set a reasonable timestep)
+    """
+
+    tension_output_trajs = [
+        np.array([[1.0, 0.0, 1.0],
+                  [-1.0, 0.0, 1.0]]),
+        np.zeros((2, 3)),
+        np.zeros((2, 3)),
+        np.zeros((2, 3)),
+        np.zeros((2, 3))
+    ]
+
+    yaws_output_trajs = [
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3),
+        np.zeros(3)
+    ]
+
+    mass_output_trajs = np.array([
+        [
+            np.array([0.0, i * 1.0 / num_steps, 0.0]),
+            np.array([0.0, 1.0 / num_steps, 0.0]),
+            np.zeros(3),
+            np.zeros(3),
+            np.zeros(3),
+            np.zeros(3),
+            np.zeros(3)
+        ] for i in range(num_steps)
+    ])
+
+    output_backer = DifferentialFlatness(load_mass, kF, kM, arm_length, quad_mass, quad_inertia, spring_constant)
+    quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj = \
+        output_backer.output_traj_to_state_traj(mass_output_trajs, tension_output_trajs, yaws_output_trajs)
+
+    return quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj
+
 
 def straight_trajectory_from_outputA_to_outputB(mass_outputA,
                                                 tension_outputA,
@@ -308,28 +367,40 @@ def straight_trajectory_from_outputA_to_outputB(mass_outputA,
     assert tension_outputA.shape[1] == 3 and tension_outputB.shape[1] == 3
     assert np.isclose(yaw_outputA, yaw_outputB).all()  # we don't handle changes in yaw that well
 
-    n_output = 3 + tension_outputA.size
     n_quad = tension_outputA.shape[0] + 1
 
-    zpp_traj = PPTrajectory(
-        sample_times=np.linspace(0, tf, 3),
-        num_vars=n_output,
+    mass_traj = PPTrajectory(
+        sample_times=np.linspace(0, tf, 2),
+        num_vars=3,
         degree=7,
         continuity_degree=6
     )
+    mass_traj.add_constraint(t=0, derivative_order=0, lb=mass_outputA)  # row-major flatten
+    mass_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(3))
+    mass_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(3))
 
-    zpp_traj.add_constraint(t=0, derivative_order=0,
-                            lb=np.concatenate(
-                                [mass_outputA, tension_outputA.flatten(order='C')]))  # row-major flatten
-    zpp_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(n_output))
-    zpp_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(n_output))
+    mass_traj.add_constraint(t=tf, derivative_order=0, lb=mass_outputB)
+    mass_traj.add_constraint(t=tf, derivative_order=1, lb=np.zeros(3))
+    mass_traj.add_constraint(t=tf, derivative_order=2, lb=np.zeros(3))
 
-    zpp_traj.add_constraint(t=tf, derivative_order=0,
-                            lb=np.concatenate([mass_outputB, tension_outputB.flatten(order='C')]))
-    zpp_traj.add_constraint(t=tf, derivative_order=1, lb=np.zeros(n_output))
-    zpp_traj.add_constraint(t=tf, derivative_order=2, lb=np.zeros(n_output))
+    mass_traj.generate()
 
-    zpp_traj.generate()
+    n_tension_vars = tension_outputA.size
+    tension_traj = PPTrajectory(
+        sample_times=np.linspace(0, tf, 2),
+        num_vars=n_tension_vars,
+        degree=5,
+        continuity_degree=4
+    )
+    tension_traj.add_constraint(t=0, derivative_order=0, lb=tension_outputA.flatten())  # row-major flatten
+    tension_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(n_tension_vars))
+    tension_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(n_tension_vars))
+
+    tension_traj.add_constraint(t=tf, derivative_order=0, lb=tension_outputB.flatten())
+    tension_traj.add_constraint(t=tf, derivative_order=1, lb=np.zeros(n_tension_vars))
+    tension_traj.add_constraint(t=tf, derivative_order=2, lb=np.zeros(n_tension_vars))
+
+    tension_traj.generate()
 
     n_t = math.ceil(tf / delta_t)
     ts = np.linspace(0, tf, n_t)
@@ -348,10 +419,10 @@ def straight_trajectory_from_outputA_to_outputB(mass_outputA,
         # confirm that this reshape is correct
 
         for i in range(7):
-            mass_position_ds[t, i, :] = zpp_traj.eval(t, derivative_order=i)[:3]
+            mass_position_ds[t, i, :] = mass_traj.eval(t, derivative_order=i)[:3]
 
         for i in range(5):
-            tension_forces_ds[t, i, :, :] = zpp_traj.eval(t, derivative_order=i)[3:]
+            tension_forces_ds[t, i, :, :] = tension_traj.eval(t, derivative_order=i).reshape(tension_outputA.shape)
 
     return mass_position_ds, tension_forces_ds, yaws_ds
 
@@ -501,6 +572,6 @@ if __name__ == '__main__':
     tension_forces = tension_forces_output[0]
     yaws = yaws_output[0]
 
-    mass_posB = mass_output[1] + np.array([0.0, 1.0, 0.0])
+    mass_posB = mass_output[1] + np.array([1.0, 0.0, 0.0])
     mass_pos_ds, tension_forces_ds, yaws_ds = straight_trajectory_from_outputA_to_outputB(
-        mass_posA, tension_forces, yaws, mass_posB, tension_forces, yaws)
+        mass_posA, tension_forces, yaws, mass_posB, tension_forces, yaws, tf=5)
