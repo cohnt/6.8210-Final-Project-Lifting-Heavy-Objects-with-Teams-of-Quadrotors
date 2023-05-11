@@ -310,7 +310,13 @@ class DifferentialFlatness:
             quad_all_omega_traj.append(quad_all_omega)
             quad_all_us_traj.append(quad_all_us)
 
-        return quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj
+        return quad_all_pos_traj, \
+            quad_all_rpy_traj, \
+            quad_all_vel_traj, \
+            quad_all_omega_traj, \
+            quad_all_us_traj, \
+            mass_output_trajs[:, 0, :], \
+            mass_output_trajs[:, 1, :]
 
 
 def demo_traj_for_three_quads(load_mass, kF, kM, arm_length, quad_mass, quad_inertia, spring_constant, cable_length,
@@ -353,11 +359,9 @@ def demo_traj_for_three_quads(load_mass, kF, kM, arm_length, quad_mass, quad_ine
 
     output_backer = DifferentialFlatness(load_mass, cable_length, spring_constant, kF, kM, arm_length, quad_mass,
                                          quad_inertia)
-    quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj = \
+    quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj, mass_pos_traj, mass_vel_traj = \
         output_backer.output_traj_to_state_traj(mass_output_trajs, tension_output_trajs, yaws_output_trajs)
 
-    mass_pos_traj = [mass_output_trajs[i][0] for i in range(len(mass_output_trajs))]
-    mass_vel_traj = [mass_output_trajs[i][1] for i in range(len(mass_output_trajs))]
     mass_quat_traj = [np.array([1, 0, 0, 0]) for _ in range(len(mass_output_trajs))]
     mass_omega_traj = [np.zeros(3) for _ in range(len(mass_output_trajs))]
 
