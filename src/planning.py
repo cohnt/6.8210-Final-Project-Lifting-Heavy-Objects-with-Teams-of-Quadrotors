@@ -6,6 +6,8 @@ from pydrake.all import (
     Solve
 )
 
+GRAVITY = np.array([0.0, 0.0, -9.81])
+
 
 class PPTrajectory:
     def __init__(self, sample_times, num_vars, degree, continuity_degree):
@@ -95,13 +97,12 @@ class PPTrajectory:
 # (We are using notation from Mellinger's thesis for variable names)
 # Notes from Bernhard:
 
-GRAVITY = np.array([0.0, 0.0, -9.81])
-
 
 class DifferentialFlatness:
-    def __init__(self, load_mass, spring_constant, force_constant, moment_constant, arm_length, quad_mass,
+    def __init__(self, load_mass, cable_length, spring_constant, force_constant, moment_constant, arm_length, quad_mass,
                  quad_inertia):
         self.load_mass = load_mass
+        self.cable_length = cable_length
         self.kF = force_constant
         self.spring_constant = spring_constant
         self.kM = moment_constant
@@ -251,9 +252,14 @@ class DifferentialFlatness:
         # that the forces are PULLING on the mass load.
 
         # since the general form of the equation is the same, we solve in a list comprehension
+
+        # F = K(x_quad - (x_m + dir * length))
+        # F^(i) = K(x_quad^(i) - (x_m^(i) + dir^(i) * length))
+        dirs_ds = (dirs, dirs_dt, dirs_ddt, dirs_dddt, dirs_ddddt)
+
         quad_position_ds = [
-            tension_forces_di / self.spring_constant + mass_position_di
-            for tension_forces_di, mass_position_di in zip(tension_forces_ds, mass_position_ds)
+            tension_forces_di / self.spring_constant + mass_position_di + dirs_di * self.cable_length
+            for tension_forces_di, mass_position_di, dirs_di in zip(tension_forces_ds, mass_position_ds, dirs_ds)
         ]
 
         # next, we solve the quad control inputs using the quad differential flatness
@@ -307,10 +313,12 @@ class DifferentialFlatness:
         return quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj
 
 
-def demo_traj_for_three_quads(load_mass, kF, kM, arm_length, quad_mass, quad_inertia, spring_constant, num_steps=100):
+def demo_traj_for_three_quads(load_mass, kF, kM, arm_length, quad_mass, quad_inertia, spring_constant, cable_length,
+                              num_steps=100):
     """Moves 1 meter in the y direction, with increments split over num_steps (i'm not sure
     at what timescale we are using so I included that degree of freedom so you can
     set a reasonable timestep)
+    :param cable_length:
     """
 
     two_pi_over_three = 2 * np.pi / 3
@@ -343,17 +351,18 @@ def demo_traj_for_three_quads(load_mass, kF, kM, arm_length, quad_mass, quad_ine
         ] for i in range(num_steps)
     ])
 
-    output_backer = DifferentialFlatness(load_mass, spring_constant, kF, kM, arm_length, quad_mass, quad_inertia)
+    output_backer = DifferentialFlatness(load_mass, cable_length, spring_constant, kF, kM, arm_length, quad_mass,
+                                         quad_inertia)
     quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj = \
         output_backer.output_traj_to_state_traj(mass_output_trajs, tension_output_trajs, yaws_output_trajs)
 
     mass_pos_traj = [mass_output_trajs[i][0] for i in range(len(mass_output_trajs))]
     mass_vel_traj = [mass_output_trajs[i][1] for i in range(len(mass_output_trajs))]
-    mass_quat_traj = [np.array([1, 0, 0, 0]) for i in range(len(mass_output_trajs))]
-    mass_omega_traj = [np.zeros(3) for i in range(len(mass_output_trajs))]
+    mass_quat_traj = [np.array([1, 0, 0, 0]) for _ in range(len(mass_output_trajs))]
+    mass_omega_traj = [np.zeros(3) for _ in range(len(mass_output_trajs))]
 
-    return quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj,\
-           mass_pos_traj, mass_vel_traj, mass_quat_traj, mass_omega_traj
+    return quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj, \
+        mass_pos_traj, mass_vel_traj, mass_quat_traj, mass_omega_traj
 
 
 def straight_trajectory_from_outputA_to_outputB(mass_outputA,
@@ -441,6 +450,7 @@ def _stacked_dot_prod(stack_of_v1, stack_of_v2):
 # for debugging purposes
 if __name__ == '__main__':
     # system constants
+    dummy_cable_length = 1
     load_dummy_mass = 1
     quad_dummy_mass = 0.775
     quad_dummy_inertia = np.diag([0.0015, 0.0025, 0.0035])
@@ -449,8 +459,9 @@ if __name__ == '__main__':
     dummy_arm_length = 0.15
     spring_dummy_constant = 10
 
-    output_backer = DifferentialFlatness(load_dummy_mass, spring_dummy_constant, dummy_arm_length, dummy_kF, dummy_kM,
-                                         quad_dummy_mass, quad_dummy_inertia)
+    output_backer = DifferentialFlatness(load_dummy_mass, dummy_cable_length, spring_dummy_constant, dummy_arm_length,
+                                         dummy_kF,
+                                         dummy_kM, quad_dummy_mass, quad_dummy_inertia)
 
     # we'll test a single timeframe
     # assume we have three quads, but two of them are balancing the mass already (expecting zero force on the remaining)
@@ -579,9 +590,8 @@ if __name__ == '__main__':
     tension_forces = tension_forces_output[0]
     yaws = yaws_output[0]
 
-
-    demo_traj_for_three_quads(load_dummy_mass, dummy_kF, dummy_kM, dummy_arm_length,
-                              quad_dummy_mass, quad_dummy_inertia, spring_dummy_constant)
+    demo_traj_for_three_quads(load_dummy_mass, dummy_kF, dummy_kM, dummy_arm_length, quad_dummy_mass,
+                              quad_dummy_inertia, spring_dummy_constant, dummy_cable_length)
 
     # TODO: debug MathematicalProgram solve
     mass_posB = mass_output[1] + np.array([1.0, 0.0, 0.0])

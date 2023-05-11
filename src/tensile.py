@@ -89,7 +89,7 @@ def TensileForce_(T):
             quad_pos = quad_state[0:3]
 
             mass_state = self.mass_state_input.Eval(context)
-            mass_pos = mass_state[4:7] # TODO: we may be pulling the wrong state here.
+            mass_pos = mass_state[4:7]
 
             f_mag, f_dir = self.compute_spring_force(quad_pos, mass_pos)
             f = -f_mag * f_dir  # inverting for mass
