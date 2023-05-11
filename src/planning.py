@@ -404,12 +404,7 @@ def straight_trajectory_from_outputA_to_outputB(mass_outputA,
         continuity_degree=1
     )
     mass_traj.add_constraint(t=0, derivative_order=0, lb=mass_outputA)
-    # mass_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(3))
-    # mass_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(3))
-
     mass_traj.add_constraint(t=tf, derivative_order=0, lb=mass_outputB)
-    # mass_traj.add_constraint(t=tf, derivative_order=1, lb=np.zeros(3))
-    # mass_traj.add_constraint(t=tf, derivative_order=2, lb=np.zeros(3))
 
     mass_traj.generate()
 
@@ -421,12 +416,7 @@ def straight_trajectory_from_outputA_to_outputB(mass_outputA,
         continuity_degree=1
     )
     tension_traj.add_constraint(t=0, derivative_order=0, lb=tension_outputA.flatten())  # row-major flatten
-    # tension_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(n_tension_vars))
-    # tension_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(n_tension_vars))
-
     tension_traj.add_constraint(t=tf, derivative_order=0, lb=tension_outputB.flatten())
-    # tension_traj.add_constraint(t=tf, derivative_order=1, lb=np.zeros(n_tension_vars))
-    # tension_traj.add_constraint(t=tf, derivative_order=2, lb=np.zeros(n_tension_vars))
 
     tension_traj.generate()
 
