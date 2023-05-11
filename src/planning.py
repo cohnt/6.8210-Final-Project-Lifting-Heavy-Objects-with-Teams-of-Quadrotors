@@ -19,7 +19,7 @@ class PPTrajectory:
         self.coeffs = []
         for i in range(len(sample_times)):
             self.coeffs.append(
-                self.prog.NewContinuousVariables(num_vars, degree + 1, "C")
+                self.prog.NewContinuousVariables(num_vars, degree + 1, "s%i" % i)
             )
         self.result = None
 
@@ -42,7 +42,8 @@ class PPTrajectory:
                     right_val = self.coeffs[s + 1][var, deg] * math.factorial(
                         deg
                     )
-                    self.prog.AddLinearConstraint(left_val == right_val)
+                    constraint = self.prog.AddLinearConstraint(left_val == right_val)
+                    constraint.evaluator().set_description("constraint on var%i and deg%i" % (var, deg))
 
         # Add cost to minimize highest order terms
         for s in range(len(sample_times) - 1):
@@ -90,7 +91,14 @@ class PPTrajectory:
 
     def generate(self):
         self.result = Solve(self.prog)
-        assert self.result.is_success(), self.result.get_solver_details()
+        if self.result.is_success():
+            return
+        else:
+            print('Solution not found.')
+            print('Prog: \n %s' % str(self.prog))
+            print('Infeasible constraints: \n %s' % str(self.result.GetInfeasibleConstraints(self.prog)))
+            print('Suboptimal Sols: \n %i' % self.result.num_suboptimal_solution())
+            raise AssertionError('MathematicalProgram did not find a solution.')
 
 
 # Thanks Bernhard for presenting a sane way to do the computation!
@@ -392,16 +400,16 @@ def straight_trajectory_from_outputA_to_outputB(mass_outputA,
     mass_traj = PPTrajectory(
         sample_times=np.linspace(0, tf, 2),
         num_vars=3,
-        degree=7,
-        continuity_degree=6
+        degree=1,
+        continuity_degree=1
     )
-    mass_traj.add_constraint(t=0, derivative_order=0, lb=mass_outputA)  # row-major flatten
-    mass_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(3))
-    mass_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(3))
+    mass_traj.add_constraint(t=0, derivative_order=0, lb=mass_outputA)
+    # mass_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(3))
+    # mass_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(3))
 
     mass_traj.add_constraint(t=tf, derivative_order=0, lb=mass_outputB)
-    mass_traj.add_constraint(t=tf, derivative_order=1, lb=np.zeros(3))
-    mass_traj.add_constraint(t=tf, derivative_order=2, lb=np.zeros(3))
+    # mass_traj.add_constraint(t=tf, derivative_order=1, lb=np.zeros(3))
+    # mass_traj.add_constraint(t=tf, derivative_order=2, lb=np.zeros(3))
 
     mass_traj.generate()
 
@@ -409,16 +417,16 @@ def straight_trajectory_from_outputA_to_outputB(mass_outputA,
     tension_traj = PPTrajectory(
         sample_times=np.linspace(0, tf, 2),
         num_vars=n_tension_vars,
-        degree=5,
-        continuity_degree=4
+        degree=1,
+        continuity_degree=1
     )
     tension_traj.add_constraint(t=0, derivative_order=0, lb=tension_outputA.flatten())  # row-major flatten
-    tension_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(n_tension_vars))
-    tension_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(n_tension_vars))
+    # tension_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(n_tension_vars))
+    # tension_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(n_tension_vars))
 
     tension_traj.add_constraint(t=tf, derivative_order=0, lb=tension_outputB.flatten())
-    tension_traj.add_constraint(t=tf, derivative_order=1, lb=np.zeros(n_tension_vars))
-    tension_traj.add_constraint(t=tf, derivative_order=2, lb=np.zeros(n_tension_vars))
+    # tension_traj.add_constraint(t=tf, derivative_order=1, lb=np.zeros(n_tension_vars))
+    # tension_traj.add_constraint(t=tf, derivative_order=2, lb=np.zeros(n_tension_vars))
 
     tension_traj.generate()
 
@@ -435,14 +443,15 @@ def straight_trajectory_from_outputA_to_outputB(mass_outputA,
     yaws_ds = np.zeros((n_t, 5, n_quad))
     yaws_ds[0, :] = yaw_outputA
 
-    for t in range(ts):
+    for t_ix in range(len(ts)):
         # confirm that this reshape is correct
 
-        for i in range(7):
-            mass_position_ds[t, i, :] = mass_traj.eval(t, derivative_order=i)[:3]
+        # since we only got linear to work in this case, then only update with the data represented in the polynomial
+        for i in range(2):
+            mass_position_ds[t_ix, i, :] = mass_traj.eval(t_ix, derivative_order=i)
 
-        for i in range(5):
-            tension_forces_ds[t, i, :, :] = tension_traj.eval(t, derivative_order=i).reshape(tension_outputA.shape)
+        for i in range(2):
+            tension_forces_ds[t_ix, i, :, :] = tension_traj.eval(t_ix, derivative_order=i).reshape(tension_outputA.shape)
 
     return mass_position_ds, tension_forces_ds, yaws_ds
 
