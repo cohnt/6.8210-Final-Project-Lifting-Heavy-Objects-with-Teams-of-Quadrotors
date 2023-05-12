@@ -18,8 +18,9 @@ class PPTrajectory:
         self.prog = MathematicalProgram()
         self.coeffs = []
         for i in range(len(sample_times)):
+            # decision vars are pnoms + derivs, deriv relation added as constraint
             self.coeffs.append(
-                self.prog.NewContinuousVariables(num_vars, degree + 1, "s%i" % i)
+                self.prog.NewContinuousVariables(num_vars, degree + 1, "C")
             )
         self.result = None
 
@@ -42,8 +43,7 @@ class PPTrajectory:
                     right_val = self.coeffs[s + 1][var, deg] * math.factorial(
                         deg
                     )
-                    constraint = self.prog.AddLinearConstraint(left_val == right_val)
-                    constraint.evaluator().set_description("constraint on var%i and deg%i" % (var, deg))
+                    self.prog.AddLinearConstraint(left_val == right_val)
 
         # Add cost to minimize highest order terms
         for s in range(len(sample_times) - 1):
@@ -91,14 +91,7 @@ class PPTrajectory:
 
     def generate(self):
         self.result = Solve(self.prog)
-        if self.result.is_success():
-            return
-        else:
-            print('Solution not found.')
-            print('Prog: \n %s' % str(self.prog))
-            print('Infeasible constraints: \n %s' % str(self.result.GetInfeasibleConstraints(self.prog)))
-            print('Suboptimal Sols: \n %i' % self.result.num_suboptimal_solution())
-            raise AssertionError('MathematicalProgram did not find a solution.')
+        assert self.result.is_success()
 
 
 # Thanks Bernhard for presenting a sane way to do the computation!
@@ -300,7 +293,7 @@ class DifferentialFlatness:
         We're assuming that quad_poses are indexed num quad (0,..., n-1) X quad pos (XYZ)
         and load mass is indexed as (3,) vector (XYZ)
         """
-        tension_output = self.spring_constant * (quad_poses - mass_pos)
+        tension_output = (self.spring_constant * (quad_poses - mass_pos))[:-1]
         return mass_pos, tension_output, quad_yaws
 
     def output_traj_to_state_traj(self, mass_output_trajs, tension_output_trajs, yaws_output_trajs):
@@ -337,8 +330,8 @@ def demo_traj_for_three_quads(load_mass, kF, kM, arm_length, quad_mass, quad_ine
 
     two_pi_over_three = 2 * np.pi / 3
     tension_output_trajs = np.array([[
-        (9.81 + 1) / 3 * np.array([[np.cos(0), np.sin(0), 1.0],
-                                   [np.cos(two_pi_over_three), np.sin(two_pi_over_three), 1.0]]),
+        9.81 / 3 * np.array([[np.cos(0), np.sin(0), 1.0],
+                             [np.cos(two_pi_over_three), np.sin(two_pi_over_three), 1.0]]),
         np.zeros((2, 3)),
         np.zeros((2, 3)),
         np.zeros((2, 3)),
@@ -383,7 +376,7 @@ def straight_trajectory_from_outputA_to_outputB(mass_outputA,
                                                 mass_outputB,
                                                 tension_outputB,
                                                 yaw_outputB,
-                                                tf=3.0, delta_t=0.1):
+                                                tf=3.0, dt=0.1):
     """
     Mass output: (3,) (XYZ)
     Tension output index: num_quad (0, ..., n-2) X force component (XYZ)
@@ -420,7 +413,7 @@ def straight_trajectory_from_outputA_to_outputB(mass_outputA,
 
     tension_traj.generate()
 
-    n_t = math.ceil(tf / delta_t)
+    n_t = math.ceil(tf / dt)
     ts = np.linspace(0, tf, n_t)
 
     # construct output trajectories in the format that compute_...state_and_control() expects.
@@ -431,17 +424,18 @@ def straight_trajectory_from_outputA_to_outputB(mass_outputA,
     mass_position_ds = np.zeros((n_t, 7, 3))
     tension_forces_ds = np.zeros((n_t, 5, n_quad - 1, 3))
     yaws_ds = np.zeros((n_t, 5, n_quad))
-    yaws_ds[0, :] = yaw_outputA
+    yaws_ds[:, 0, :] = np.tile(yaw_outputA, (n_t, 1))
 
-    for t_ix in range(len(ts)):
+    for t_ix, t in enumerate(ts):
         # confirm that this reshape is correct
 
         # since we only got linear to work in this case, then only update with the data represented in the polynomial
         for i in range(2):
-            mass_position_ds[t_ix, i, :] = mass_traj.eval(t_ix, derivative_order=i)
+            mass_position_ds[t_ix, i, :] = mass_traj.eval(t, derivative_order=i)
 
         for i in range(2):
-            tension_forces_ds[t_ix, i, :, :] = tension_traj.eval(t_ix, derivative_order=i).reshape(tension_outputA.shape)
+            tension_forces_ds[t_ix, i, :, :] = tension_traj.eval(t, derivative_order=i).reshape(
+                tension_outputA.shape)
 
     return mass_position_ds, tension_forces_ds, yaws_ds
 
