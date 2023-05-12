@@ -3,7 +3,8 @@ import math
 from pydrake.all import (
     RotationMatrix,
     MathematicalProgram,
-    Solve
+    Solve,
+    MosekSolver
 )
 
 GRAVITY = np.array([0.0, 0.0, -9.81])
@@ -90,7 +91,9 @@ class PPTrajectory:
         self.prog.AddLinearConstraint(val, lb, ub)
 
     def generate(self):
-        self.result = Solve(self.prog)
+        solver = MosekSolver()
+        self.result = solver.Solve(self.prog)
+        print(self.result.get_solver_id().name())
         assert self.result.is_success()
 
 
@@ -319,55 +322,80 @@ class DifferentialFlatness:
             mass_output_trajs[:, 0, :], \
             mass_output_trajs[:, 1, :]
 
+    def demo_traj_for_three_quads(self, num_steps=100):
+        """Moves 1 meter in the y direction, with increments split over num_steps (i'm not sure
+        at what timescale we are using so I included that degree of freedom so you can
+        set a reasonable timestep)
+        :param cable_length:
+        """
 
-def demo_traj_for_three_quads(load_mass, kF, kM, arm_length, quad_mass, quad_inertia, spring_constant, cable_length,
-                              num_steps=100):
-    """Moves 1 meter in the y direction, with increments split over num_steps (i'm not sure
-    at what timescale we are using so I included that degree of freedom so you can
-    set a reasonable timestep)
-    :param cable_length:
-    """
+        two_pi_over_three = 2 * np.pi / 3
+        tension_output_trajs = np.array([[
+            9.81 / 3 * np.array([[np.cos(0), np.sin(0), 1.0],
+                                 [np.cos(two_pi_over_three), np.sin(two_pi_over_three), 1.0]]),
+            np.zeros((2, 3)),
+            np.zeros((2, 3)),
+            np.zeros((2, 3)),
+            np.zeros((2, 3))
+        ] for _ in range(num_steps)])
 
-    two_pi_over_three = 2 * np.pi / 3
-    tension_output_trajs = np.array([[
-        9.81 / 3 * np.array([[np.cos(0), np.sin(0), 1.0],
-                             [np.cos(two_pi_over_three), np.sin(two_pi_over_three), 1.0]]),
-        np.zeros((2, 3)),
-        np.zeros((2, 3)),
-        np.zeros((2, 3)),
-        np.zeros((2, 3))
-    ] for _ in range(num_steps)])
-
-    yaws_output_trajs = np.array([[
-        np.zeros(3),
-        np.zeros(3),
-        np.zeros(3),
-        np.zeros(3),
-        np.zeros(3)
-    ] for _ in range(num_steps)])
-
-    mass_output_trajs = np.array([
-        [
-            np.array([0.0, i * 1.0 / num_steps, 0.0]),
-            np.array([0.0, 1.0 / num_steps, 0.0]),
+        yaws_output_trajs = np.array([[
             np.zeros(3),
             np.zeros(3),
             np.zeros(3),
             np.zeros(3),
             np.zeros(3)
-        ] for i in range(num_steps)
-    ])
+        ] for _ in range(num_steps)])
 
-    output_backer = DifferentialFlatness(load_mass, cable_length, spring_constant, kF, kM, arm_length, quad_mass,
-                                         quad_inertia)
-    quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj, mass_pos_traj, mass_vel_traj = \
-        output_backer.output_traj_to_state_traj(mass_output_trajs, tension_output_trajs, yaws_output_trajs)
+        mass_output_trajs = np.array([
+            [
+                np.array([0.0, i * 1.0 / num_steps, 0.0]),
+                np.array([0.0, 1.0 / num_steps, 0.0]),
+                np.zeros(3),
+                np.zeros(3),
+                np.zeros(3),
+                np.zeros(3),
+                np.zeros(3)
+            ] for i in range(num_steps)
+        ])
 
-    mass_quat_traj = [np.array([1, 0, 0, 0]) for _ in range(len(mass_output_trajs))]
-    mass_omega_traj = [np.zeros(3) for _ in range(len(mass_output_trajs))]
+        quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj, mass_pos_traj, mass_vel_traj = \
+            self.output_traj_to_state_traj(mass_output_trajs, tension_output_trajs, yaws_output_trajs)
 
-    return quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj, \
-        mass_pos_traj, mass_vel_traj, mass_quat_traj, mass_omega_traj
+        mass_quat_traj = [np.array([1, 0, 0, 0]) for _ in range(len(mass_output_trajs))]
+        mass_omega_traj = [np.zeros(3) for _ in range(len(mass_output_trajs))]
+
+        return quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj, \
+            mass_pos_traj, mass_vel_traj, mass_quat_traj, mass_omega_traj
+
+    def circle_traj_for_three_quads(self, num_loops=3, sec_per_loop=1, loop_rad=0.5, dt=0.01):
+        # design a trajectory with two quads staying still, leveraging the state mapping to do the do the
+        # and approximate the circle with piewise polynomials
+
+        points_per_circle = 8
+
+        angle_steps_one_loop = np.linspace(0, 2 * np.pi, points_per_circle)
+        angle_steps = np.concatenate([angle_steps_one_loop[:-1]] * (num_loops - 1) + angle_steps_one_loop)
+
+        # mass motion
+        mass_movement = np.hstack([
+            loop_rad * np.cos(angle_steps),
+            loop_rad * np.sin(angle_steps),
+            0.0
+        ])
+
+        # define quad positions:
+        quad_pos = np.array([
+            [0.25, 0.0, 1.0],
+            [0.0, 0.25, 1.0],
+            [0.0, 0.0, 1.0] # this line doesn't matter, it's really just a placeholder since state->output removes it
+        ])
+
+        yaws = np.zerso(3)
+
+        output_waypoints = [
+            self.state_to_output(mass_movement[i], quad_pos, yaws) for i in range(points_per_circle)
+        ]
 
 
 def straight_trajectory_from_outputA_to_outputB(mass_outputA,
@@ -393,8 +421,8 @@ def straight_trajectory_from_outputA_to_outputB(mass_outputA,
     mass_traj = PPTrajectory(
         sample_times=np.linspace(0, tf, 2),
         num_vars=3,
-        degree=1,
-        continuity_degree=1
+        degree=7,
+        continuity_degree=6
     )
     mass_traj.add_constraint(t=0, derivative_order=0, lb=mass_outputA)
     mass_traj.add_constraint(t=tf, derivative_order=0, lb=mass_outputB)
@@ -405,8 +433,8 @@ def straight_trajectory_from_outputA_to_outputB(mass_outputA,
     tension_traj = PPTrajectory(
         sample_times=np.linspace(0, tf, 2),
         num_vars=n_tension_vars,
-        degree=1,
-        continuity_degree=1
+        degree=5,
+        continuity_degree=4
     )
     tension_traj.add_constraint(t=0, derivative_order=0, lb=tension_outputA.flatten())  # row-major flatten
     tension_traj.add_constraint(t=tf, derivative_order=0, lb=tension_outputB.flatten())
@@ -587,8 +615,8 @@ if __name__ == '__main__':
     tension_forces = tension_forces_output[0]
     yaws = yaws_output[0]
 
-    demo_traj_for_three_quads(load_dummy_mass, dummy_kF, dummy_kM, dummy_arm_length, quad_dummy_mass,
-                              quad_dummy_inertia, spring_dummy_constant, dummy_cable_length)
+    # demo_traj_for_three_quads(load_dummy_mass, dummy_kF, dummy_kM, dummy_arm_length, quad_dummy_mass,
+    #                           quad_dummy_inertia, spring_dummy_constant, dummy_cable_length)
 
     # TODO: debug MathematicalProgram solve
     mass_posB = mass_output[1] + np.array([1.0, 0.0, 0.0])
