@@ -388,16 +388,56 @@ class DifferentialFlatness:
         quad_pos = np.array([
             [0.25, 0.0, 1.0],
             [0.0, 0.25, 1.0],
-            [0.0, 0.0, 1.0] # this line doesn't matter, it's really just a placeholder since state->output removes it
+            [0.0, 0.0, 1.0]  # this line doesn't matter, it's really just a placeholder since state->output removes it
         ])
 
-        yaws = np.zerso(3)
+        yaws = np.zeros(3)
 
         output_waypoints = [
-            self.state_to_output(mass_movement[i], quad_pos, yaws) for i in range(points_per_circle)
-        ]
+                               self.state_to_output(mass_movement[i], quad_pos, yaws) for i in range(points_per_circle)
+                           ] * num_loops
 
+        # now, fit with a trajectory
+        n_tension_vars = output_waypoints[0][1].size
+        mass_traj = PPTrajectory(
+            sample_times=np.linspace(0, sec_per_loop * num_loops, len(output_waypoints)),
+            num_vars=3,
+            degree=7,
+            continuity_degree=6
+        )
 
+        tension_traj = PPTrajectory(
+            sample_times=np.linspace(0, sec_per_loop * num_loops, len(output_waypoints)),
+            num_vars=n_tension_vars,
+            degree=5,
+            continuity_degree=4
+        )
+
+        ts = np.linspace(0, sec_per_loop * num_loops, points_per_circle * num_loops)
+
+        for t, (mass_o, tension_o, yaw_o) in zip(ts, output_waypoints):
+            mass_traj.add_constraint(t=0, derivative_order=0, lb=mass_o)
+            tension_traj.add_constraint(t=0, derivative_order=0, lb=tension_o.flatten(order='C'))  # row-major flatten
+
+        mass_traj.generate()
+
+        n_t = len(ts)
+        mass_position_ds = np.zeros((n_t, 7, 3))
+        tension_forces_ds = np.zeros((n_t, 5, 2, 3))
+        yaws_ds = np.zeros((n_t, 5, 3))
+        yaws_ds[:, 0, :] = np.tile(yaws, (n_t, 1))
+
+        for t_ix, t in enumerate(ts):
+            # confirm that this reshape is correct
+
+            for i in range(7):
+                mass_position_ds[t_ix, i, :] = mass_traj.eval(t, derivative_order=i)
+
+            for i in range(5):
+                tension_forces_ds[t_ix, i, :, :] = tension_traj.eval(t, derivative_order=i).reshape(
+                    output_waypoints[0][1].shape)
+
+        return mass_position_ds, tension_forces_ds, yaws_ds
 def straight_trajectory_from_outputA_to_outputB(mass_outputA,
                                                 tension_outputA,
                                                 yaw_outputA,
