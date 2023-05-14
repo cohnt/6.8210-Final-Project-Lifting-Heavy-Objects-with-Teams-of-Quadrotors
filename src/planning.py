@@ -399,29 +399,33 @@ class DifferentialFlatness:
 
         # now, fit with a trajectory
         n_tension_vars = output_waypoints[0][1].size
+        T = sec_per_loop * num_loops
         mass_traj = PPTrajectory(
-            sample_times=np.linspace(0, sec_per_loop * num_loops, len(output_waypoints)),
+            sample_times=np.linspace(0, T, len(output_waypoints)),
             num_vars=3,
             degree=7,
             continuity_degree=6
         )
 
         tension_traj = PPTrajectory(
-            sample_times=np.linspace(0, sec_per_loop * num_loops, len(output_waypoints)),
+            sample_times=np.linspace(0, T, len(output_waypoints)),
             num_vars=n_tension_vars,
             degree=5,
             continuity_degree=4
         )
 
-        ts = np.linspace(0, sec_per_loop * num_loops, points_per_circle * num_loops)
+        sample_ts = np.linspace(0, T, points_per_circle * num_loops)
 
-        for t, (mass_o, tension_o, yaw_o) in zip(ts, output_waypoints):
+        for t, (mass_o, tension_o, yaw_o) in zip(sample_ts, output_waypoints):
             mass_traj.add_constraint(t=0, derivative_order=0, lb=mass_o)
             tension_traj.add_constraint(t=0, derivative_order=0, lb=tension_o.flatten(order='C'))  # row-major flatten
 
         mass_traj.generate()
+        tension_traj.generate()
 
-        n_t = len(ts)
+        n_t = math.ceil(T / dt)
+        ts = np.linspace(0, T, n_t)
+
         mass_position_ds = np.zeros((n_t, 7, 3))
         tension_forces_ds = np.zeros((n_t, 5, 2, 3))
         yaws_ds = np.zeros((n_t, 5, 3))
@@ -438,74 +442,76 @@ class DifferentialFlatness:
                     output_waypoints[0][1].shape)
 
         return mass_position_ds, tension_forces_ds, yaws_ds
-def straight_trajectory_from_outputA_to_outputB(mass_outputA,
-                                                tension_outputA,
-                                                yaw_outputA,
-                                                mass_outputB,
-                                                tension_outputB,
-                                                yaw_outputB,
-                                                tf=3.0, dt=0.1):
-    """
-    Mass output: (3,) (XYZ)
-    Tension output index: num_quad (0, ..., n-2) X force component (XYZ)
-    Yaw output index: num_quad (0, ..., n-1)
-    We not include yaw output since
-    """
 
-    assert mass_outputA.shape == (3,) and mass_outputB.shape == (3,)
-    assert tension_outputA.shape[1] == 3 and tension_outputB.shape[1] == 3
-    assert np.isclose(yaw_outputA, yaw_outputB).all()  # we don't handle changes in yaw that well
+    def straight_trajectory_from_outputA_to_outputB(self,
+                                                    mass_outputA,
+                                                    tension_outputA,
+                                                    yaw_outputA,
+                                                    mass_outputB,
+                                                    tension_outputB,
+                                                    yaw_outputB,
+                                                    tf=3.0, dt=0.1):
+        """
+        Mass output: (3,) (XYZ)
+        Tension output index: num_quad (0, ..., n-2) X force component (XYZ)
+        Yaw output index: num_quad (0, ..., n-1)
+        We not include yaw output since
+        """
 
-    n_quad = tension_outputA.shape[0] + 1
+        assert mass_outputA.shape == (3,) and mass_outputB.shape == (3,)
+        assert tension_outputA.shape[1] == 3 and tension_outputB.shape[1] == 3
+        assert np.isclose(yaw_outputA, yaw_outputB).all()  # we don't handle changes in yaw that well
 
-    mass_traj = PPTrajectory(
-        sample_times=np.linspace(0, tf, 2),
-        num_vars=3,
-        degree=7,
-        continuity_degree=6
-    )
-    mass_traj.add_constraint(t=0, derivative_order=0, lb=mass_outputA)
-    mass_traj.add_constraint(t=tf, derivative_order=0, lb=mass_outputB)
+        n_quad = tension_outputA.shape[0] + 1
 
-    mass_traj.generate()
+        mass_traj = PPTrajectory(
+            sample_times=np.linspace(0, tf, 2),
+            num_vars=3,
+            degree=7,
+            continuity_degree=6
+        )
+        mass_traj.add_constraint(t=0, derivative_order=0, lb=mass_outputA)
+        mass_traj.add_constraint(t=tf, derivative_order=0, lb=mass_outputB)
 
-    n_tension_vars = tension_outputA.size
-    tension_traj = PPTrajectory(
-        sample_times=np.linspace(0, tf, 2),
-        num_vars=n_tension_vars,
-        degree=5,
-        continuity_degree=4
-    )
-    tension_traj.add_constraint(t=0, derivative_order=0, lb=tension_outputA.flatten())  # row-major flatten
-    tension_traj.add_constraint(t=tf, derivative_order=0, lb=tension_outputB.flatten())
+        mass_traj.generate()
 
-    tension_traj.generate()
+        n_tension_vars = tension_outputA.size
+        tension_traj = PPTrajectory(
+            sample_times=np.linspace(0, tf, 2),
+            num_vars=n_tension_vars,
+            degree=5,
+            continuity_degree=4
+        )
+        tension_traj.add_constraint(t=0, derivative_order=0, lb=tension_outputA.flatten())  # row-major flatten
+        tension_traj.add_constraint(t=tf, derivative_order=0, lb=tension_outputB.flatten())
 
-    n_t = math.ceil(tf / dt)
-    ts = np.linspace(0, tf, n_t)
+        tension_traj.generate()
 
-    # construct output trajectories in the format that compute_...state_and_control() expects.
-    # indexing for mass: time X derivative_order X mass state var (XYZ)
-    # indexing for tensions: time X derivative_order X quad # (1, ..., n) X tension vect state var (XYZ)
-    # indexing for yaws: time X derivative_order X quad # (0, ..., n)
+        n_t = math.ceil(tf / dt)
+        ts = np.linspace(0, tf, n_t)
 
-    mass_position_ds = np.zeros((n_t, 7, 3))
-    tension_forces_ds = np.zeros((n_t, 5, n_quad - 1, 3))
-    yaws_ds = np.zeros((n_t, 5, n_quad))
-    yaws_ds[:, 0, :] = np.tile(yaw_outputA, (n_t, 1))
+        # construct output trajectories in the format that compute_...state_and_control() expects.
+        # indexing for mass: time X derivative_order X mass state var (XYZ)
+        # indexing for tensions: time X derivative_order X quad # (1, ..., n) X tension vect state var (XYZ)
+        # indexing for yaws: time X derivative_order X quad # (0, ..., n)
 
-    for t_ix, t in enumerate(ts):
-        # confirm that this reshape is correct
+        mass_position_ds = np.zeros((n_t, 7, 3))
+        tension_forces_ds = np.zeros((n_t, 5, n_quad - 1, 3))
+        yaws_ds = np.zeros((n_t, 5, n_quad))
+        yaws_ds[:, 0, :] = np.tile(yaw_outputA, (n_t, 1))
 
-        # since we only got linear to work in this case, then only update with the data represented in the polynomial
-        for i in range(2):
-            mass_position_ds[t_ix, i, :] = mass_traj.eval(t, derivative_order=i)
+        for t_ix, t in enumerate(ts):
+            # confirm that this reshape is correct
 
-        for i in range(2):
-            tension_forces_ds[t_ix, i, :, :] = tension_traj.eval(t, derivative_order=i).reshape(
-                tension_outputA.shape)
+            # since we only got linear to work in this case, then only update with the data represented in the polynomial
+            for i in range(2):
+                mass_position_ds[t_ix, i, :] = mass_traj.eval(t, derivative_order=i)
 
-    return mass_position_ds, tension_forces_ds, yaws_ds
+            for i in range(2):
+                tension_forces_ds[t_ix, i, :, :] = tension_traj.eval(t, derivative_order=i).reshape(
+                    tension_outputA.shape)
+
+        return mass_position_ds, tension_forces_ds, yaws_ds
 
 
 def _stacked_dot_prod(stack_of_v1, stack_of_v2):

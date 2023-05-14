@@ -14,6 +14,7 @@ from pydrake.examples import (
     QuadrotorGeometry
 )
 
+
 @TemplateSystem.define("TensileForce_")
 def TensileForce_(T):
     class Impl(LeafSystem_[T]):
@@ -25,7 +26,7 @@ def TensileForce_(T):
             self.quad_body_index = quad_body_index  # Index of the affected body from the plant
             self.mass_body_index = mass_body_index  # Index of the affected body from the plant
 
-            self.anchor_displacement = np.random.normal(loc=0, scale=0.0, size=3) # Broken unless loc=scale=0
+            self.anchor_displacement = np.random.normal(loc=0, scale=0.0, size=3)  # Broken unless loc=scale=0
 
             self.quad_state_input = self.DeclareVectorInputPort("quad_state_input", size=12)
             self.mass_state_input = self.DeclareVectorInputPort("mass_state_input", size=13)  # this is xyz quat state
@@ -153,9 +154,9 @@ def SpatialForceAdder_(T):
                                 for i in range(N_inputs)]
 
             self.Output_port = self.DeclareAbstractOutputPort("force_output",
-                                                               alloc=lambda: AbstractValue.Make(
-                                                                   [ExternallyAppliedSpatialForce_[T]()]),
-                                                               calc=self.AddForces)
+                                                              alloc=lambda: AbstractValue.Make(
+                                                                  [ExternallyAppliedSpatialForce_[T]()]),
+                                                              calc=self.AddForces)
 
         def AddForces(self, context, output):
             f_net = SpatialForce_[T](np.zeros((3, 1)), np.zeros((3, 1)))
