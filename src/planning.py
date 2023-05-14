@@ -94,7 +94,7 @@ class PPTrajectory:
         solver = MosekSolver()
         self.result = solver.Solve(self.prog)
         print(self.result.get_solver_id().name())
-        assert self.result.is_success()
+        assert self.result.is_success(), str(self.result.get_solver_details().solution_status)
 
 
 # Thanks Bernhard for presenting a sane way to do the computation!
@@ -368,80 +368,90 @@ class DifferentialFlatness:
         return quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj, \
             mass_pos_traj, mass_vel_traj, mass_quat_traj, mass_omega_traj
 
-    def circle_traj_for_three_quads(self, num_loops=3, sec_per_loop=1, loop_rad=0.5, dt=0.01):
-        # design a trajectory with two quads staying still, leveraging the state mapping to do the do the
-        # and approximate the circle with piewise polynomials
-
-        points_per_circle = 8
-
-        angle_steps_one_loop = np.linspace(0, 2 * np.pi, points_per_circle)
-        angle_steps = np.concatenate([angle_steps_one_loop[:-1]] * (num_loops - 1) + angle_steps_one_loop)
-
-        # mass motion
-        mass_movement = np.hstack([
-            loop_rad * np.cos(angle_steps),
-            loop_rad * np.sin(angle_steps),
-            0.0
-        ])
-
-        # define quad positions:
-        quad_pos = np.array([
-            [0.25, 0.0, 1.0],
-            [0.0, 0.25, 1.0],
-            [0.0, 0.0, 1.0]  # this line doesn't matter, it's really just a placeholder since state->output removes it
-        ])
-
-        yaws = np.zeros(3)
-
-        output_waypoints = [
-                               self.state_to_output(mass_movement[i], quad_pos, yaws) for i in range(points_per_circle)
-                           ] * num_loops
-
-        # now, fit with a trajectory
-        n_tension_vars = output_waypoints[0][1].size
-        T = sec_per_loop * num_loops
-        mass_traj = PPTrajectory(
-            sample_times=np.linspace(0, T, len(output_waypoints)),
-            num_vars=3,
-            degree=7,
-            continuity_degree=6
-        )
-
-        tension_traj = PPTrajectory(
-            sample_times=np.linspace(0, T, len(output_waypoints)),
-            num_vars=n_tension_vars,
-            degree=5,
-            continuity_degree=4
-        )
-
-        sample_ts = np.linspace(0, T, points_per_circle * num_loops)
-
-        for t, (mass_o, tension_o, yaw_o) in zip(sample_ts, output_waypoints):
-            mass_traj.add_constraint(t=0, derivative_order=0, lb=mass_o)
-            tension_traj.add_constraint(t=0, derivative_order=0, lb=tension_o.flatten(order='C'))  # row-major flatten
-
-        mass_traj.generate()
-        tension_traj.generate()
-
-        n_t = math.ceil(T / dt)
-        ts = np.linspace(0, T, n_t)
-
-        mass_position_ds = np.zeros((n_t, 7, 3))
-        tension_forces_ds = np.zeros((n_t, 5, 2, 3))
-        yaws_ds = np.zeros((n_t, 5, 3))
-        yaws_ds[:, 0, :] = np.tile(yaws, (n_t, 1))
-
-        for t_ix, t in enumerate(ts):
-            # confirm that this reshape is correct
-
-            for i in range(7):
-                mass_position_ds[t_ix, i, :] = mass_traj.eval(t, derivative_order=i)
-
-            for i in range(5):
-                tension_forces_ds[t_ix, i, :, :] = tension_traj.eval(t, derivative_order=i).reshape(
-                    output_waypoints[0][1].shape)
-
-        return mass_position_ds, tension_forces_ds, yaws_ds
+    # def circle_traj_for_three_quads(self, num_loops=1, sec_per_loop=3, loop_rad=0.5, dt=0.01):
+    #     # design a trajectory with two quads staying still, leveraging the state mapping to do the do the
+    #     # and approximate the circle with piewise polynomials
+    #
+    #     points_per_circle = 5
+    #
+    #     angle_steps_one_loop = np.linspace(0, 2 * np.pi, points_per_circle)
+    #     angle_steps = np.concatenate([np.tile(angle_steps_one_loop[:-1], num_loops - 1), angle_steps_one_loop])
+    #     n_samples = len(angle_steps)
+    #
+    #     # mass motion
+    #     mass_movement = np.hstack([
+    #         loop_rad * np.cos(angle_steps).reshape(-1, 1),
+    #         loop_rad * np.sin(angle_steps).reshape(-1, 1),
+    #         np.zeros((n_samples, 1))
+    #     ])
+    #
+    #     # define quad positions:
+    #     quad_pos = np.array([
+    #         [0.25, 0.0, 1.0],
+    #         [0.0, 0.25, 1.0],
+    #         [0.0, 0.0, 1.0]  # this line doesn't matter, it's really just a placeholder since state->output removes it
+    #     ])
+    #
+    #     yaws = np.zeros(3)
+    #
+    #     output_waypoints = [
+    #         self.state_to_output(mass_movement[i], quad_pos, yaws) for i in range(n_samples)
+    #     ]
+    #
+    #     # now, fit with a trajectory
+    #     n_tension_vars = output_waypoints[0][1].size
+    #     T = sec_per_loop * num_loops
+    #     mass_traj = PPTrajectory(
+    #         sample_times=np.linspace(0, T, n_samples),
+    #         num_vars=3,
+    #         degree=7,
+    #         continuity_degree=6
+    #     )
+    #
+    #     tension_traj = PPTrajectory(
+    #         sample_times=np.linspace(0, T, n_samples),
+    #         num_vars=n_tension_vars,
+    #         degree=5,
+    #         continuity_degree=4
+    #     )
+    #
+    #     sample_ts = np.linspace(0, T, n_samples)
+    #     # mass_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(3))
+    #     # mass_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(3))
+    #     # mass_traj.add_constraint(t=sample_ts[-1], derivative_order=1, lb=np.zeros(3))
+    #     # mass_traj.add_constraint(t=sample_ts[-1], derivative_order=2, lb=np.zeros(3))
+    #     #
+    #     # tension_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(n_tension_vars))
+    #     # tension_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(n_tension_vars))
+    #     # tension_traj.add_constraint(t=sample_ts[-1], derivative_order=1, lb=np.zeros(n_tension_vars))
+    #     # tension_traj.add_constraint(t=sample_ts[-1], derivative_order=2, lb=np.zeros(n_tension_vars))
+    #
+    #     for t, (mass_o, tension_o, yaw_o) in zip(sample_ts, output_waypoints):
+    #         mass_traj.add_constraint(t=0, derivative_order=0, lb=mass_o)
+    #         tension_traj.add_constraint(t=0, derivative_order=0, lb=tension_o.flatten(order='C'))  # row-major flatten
+    #
+    #     mass_traj.generate()
+    #     tension_traj.generate()
+    #
+    #     n_t = math.ceil(T / dt)
+    #     ts = np.linspace(0, T, n_t)
+    #
+    #     mass_position_ds = np.zeros((n_t, 7, 3))
+    #     tension_forces_ds = np.zeros((n_t, 5, 2, 3))
+    #     yaws_ds = np.zeros((n_t, 5, 3))
+    #     yaws_ds[:, 0, :] = np.tile(yaws, (n_t, 1))
+    #
+    #     for t_ix, t in enumerate(ts):
+    #         # confirm that this reshape is correct
+    #
+    #         for i in range(7):
+    #             mass_position_ds[t_ix, i, :] = mass_traj.eval(t, derivative_order=i)
+    #
+    #         for i in range(5):
+    #             tension_forces_ds[t_ix, i, :, :] = tension_traj.eval(t, derivative_order=i).reshape(
+    #                 output_waypoints[0][1].shape)
+    #
+    #     return mass_position_ds, tension_forces_ds, yaws_ds
 
     def straight_trajectory_from_outputA_to_outputB(self,
                                                     mass_outputA,
@@ -510,6 +520,86 @@ class DifferentialFlatness:
             for i in range(2):
                 tension_forces_ds[t_ix, i, :, :] = tension_traj.eval(t, derivative_order=i).reshape(
                     tension_outputA.shape)
+
+        return mass_position_ds, tension_forces_ds, yaws_ds
+
+    def waypoints_to_output_trajectory_for_three_quads(self, times, mass_waypoints, dt=0.01):
+        """
+        Two quads will stay above the mass, the third will do the work of moving the trajectory around.
+        """
+        assert len(times) == len(mass_waypoints)
+        n_samples = len(times)
+        tf = times[-1]
+
+        # compute quad positions above mass
+        quads_pos_relative_to_mass = np.array([
+            [0.0, 0.5, 1.0],
+            [0.0, -0.5, 1.0],
+            [0.0, 0.0, 0.0]  # this row will be erased from the state -> output map so we just need filler
+        ])
+        quads_waypoints = np.repeat(np.expand_dims(mass_waypoints, 1), 3, axis=1) + quads_pos_relative_to_mass
+        yaws = np.zeros(3)
+
+        # compute corresponding output map
+        output_waypoints = [
+            self.state_to_output(mass_waypoints[i], quads_waypoints[i], yaws) for i in range(n_samples)
+        ]
+        n_tension_vars = output_waypoints[0][1].size
+        tension_shape = output_waypoints[0][1].shape
+
+        # run optimization to find the piecewise polynomials
+        mass_traj = PPTrajectory(
+            sample_times=np.linspace(0, tf, n_samples),
+            num_vars=3,
+            degree=7,
+            continuity_degree=6
+        )
+
+        tension_traj = PPTrajectory(
+            sample_times=np.linspace(0, tf, n_samples),
+            num_vars=n_tension_vars,
+            degree=5,
+            continuity_degree=4
+        )
+
+        mass_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(3))
+        mass_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(3))
+
+        tension_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(n_tension_vars))
+        tension_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(n_tension_vars))
+
+        for t, (mass_wp, tension_wp, _) in zip(times, output_waypoints):
+            mass_traj.add_constraint(t=t, derivative_order=0, lb=mass_wp)
+            tension_traj.add_constraint(t=t, derivative_order=0, lb=tension_wp)
+
+        try:
+            mass_traj.generate()
+        except AssertionError:
+            print('Could not find a piecewise-polynomial to fit the mass_traj.')
+
+        try:
+            tension_traj.generate()
+        except AssertionError:
+            print('Could not find a piecewise-polynomial to fit the tension_traj.')
+
+        # evaluate the polynomials to get the output trajectory
+        n_t = math.ceil(tf / dt)
+        ts = np.linspace(0, tf, n_t)
+
+        mass_position_ds = np.zeros((n_t, 7, 3))
+        tension_forces_ds = np.zeros((n_t, 5, 2, 3))
+        yaws_ds = np.zeros((n_t, 5, 3))
+        yaws_ds[:, 0, :] = np.tile(yaws, (n_t, 1))
+
+        for t_ix, t in enumerate(ts):
+            # confirm that this reshape is correct
+
+            for i in range(7):
+                mass_position_ds[t_ix, i, :] = mass_traj.eval(t, derivative_order=i)
+
+            for i in range(5):
+                tension_forces_ds[t_ix, i, :, :] = tension_traj.eval(t, derivative_order=i).reshape(
+                    output_waypoints[0][1].shape)
 
         return mass_position_ds, tension_forces_ds, yaws_ds
 
@@ -666,5 +756,8 @@ if __name__ == '__main__':
 
     # TODO: debug MathematicalProgram solve
     mass_posB = mass_output[1] + np.array([1.0, 0.0, 0.0])
-    mass_pos_ds, tension_forces_ds, yaws_ds = straight_trajectory_from_outputA_to_outputB(
+    mass_pos_ds, tension_forces_ds, yaws_ds = output_backer.straight_trajectory_from_outputA_to_outputB(
         mass_posA, tension_forces, yaws, mass_posB, tension_forces, yaws, tf=5)
+
+    mass_pos_ds, tension_forces_ds, yaws_ds = output_backer.circle_traj_for_three_quads()
+    print('hi')
