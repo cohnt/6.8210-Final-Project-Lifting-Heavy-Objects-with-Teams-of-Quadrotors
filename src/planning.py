@@ -93,7 +93,6 @@ class PPTrajectory:
     def generate(self):
         solver = MosekSolver()
         self.result = solver.Solve(self.prog)
-        print(self.result.get_solver_id().name())
         assert self.result.is_success(), str(self.result.get_solver_details().solution_status)
 
 
@@ -531,12 +530,13 @@ class DifferentialFlatness:
         n_samples = len(times)
         tf = times[-1]
 
-        # compute quad positions above mass
-        quads_pos_relative_to_mass = np.array([
-            [0.0, 0.5, 1.0],
-            [0.0, -0.5, 1.0],
-            [0.0, 0.0, 0.0]  # this row will be erased from the state -> output map so we just need filler
-        ])
+        two_pi_over_three = 2 * np.pi / 3
+        quads_pos_relative_to_mass = self.load_mass * 9.81 / 3 / self.spring_constant * np.array(
+            [[np.cos(0), np.sin(0), 1.0],
+             [np.cos(two_pi_over_three), np.sin(two_pi_over_three), 1.0],
+             [np.cos(2 * two_pi_over_three), np.sin(2 * two_pi_over_three), 1.0]] # lost through output map
+        )
+
         quads_waypoints = np.repeat(np.expand_dims(mass_waypoints, 1), 3, axis=1) + quads_pos_relative_to_mass
         yaws = np.zeros(3)
 
@@ -564,13 +564,17 @@ class DifferentialFlatness:
 
         mass_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(3))
         mass_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(3))
+        mass_traj.add_constraint(t=tf, derivative_order=1, lb=np.zeros(3))
+        mass_traj.add_constraint(t=tf, derivative_order=2, lb=np.zeros(3))
 
         tension_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(n_tension_vars))
         tension_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(n_tension_vars))
+        tension_traj.add_constraint(t=tf, derivative_order=1, lb=np.zeros(n_tension_vars))
+        tension_traj.add_constraint(t=tf, derivative_order=2, lb=np.zeros(n_tension_vars))
 
         for t, (mass_wp, tension_wp, _) in zip(times, output_waypoints):
             mass_traj.add_constraint(t=t, derivative_order=0, lb=mass_wp)
-            tension_traj.add_constraint(t=t, derivative_order=0, lb=tension_wp)
+            tension_traj.add_constraint(t=t, derivative_order=0, lb=tension_wp.flatten(order='C'))
 
         try:
             mass_traj.generate()
@@ -599,7 +603,7 @@ class DifferentialFlatness:
 
             for i in range(5):
                 tension_forces_ds[t_ix, i, :, :] = tension_traj.eval(t, derivative_order=i).reshape(
-                    output_waypoints[0][1].shape)
+                    output_waypoints[0][1].shape, order='C')
 
         return mass_position_ds, tension_forces_ds, yaws_ds
 
@@ -754,10 +758,14 @@ if __name__ == '__main__':
     # demo_traj_for_three_quads(load_dummy_mass, dummy_kF, dummy_kM, dummy_arm_length, quad_dummy_mass,
     #                           quad_dummy_inertia, spring_dummy_constant, dummy_cable_length)
 
-    # TODO: debug MathematicalProgram solve
     mass_posB = mass_output[1] + np.array([1.0, 0.0, 0.0])
     mass_pos_ds, tension_forces_ds, yaws_ds = output_backer.straight_trajectory_from_outputA_to_outputB(
         mass_posA, tension_forces, yaws, mass_posB, tension_forces, yaws, tf=5)
 
-    mass_pos_ds, tension_forces_ds, yaws_ds = output_backer.circle_traj_for_three_quads()
-    print('hi')
+    times = [0.0, 0.5, 3.0]
+    waypoints = np.array([
+        [0.0, 0.0, 0.0],
+        [0.1, 0.1, 0.0],
+        [0.0, 2.0, 0.0]
+    ])
+    output_backer.waypoints_to_output_trajectory_for_three_quads(times, waypoints)
