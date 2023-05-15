@@ -67,7 +67,7 @@ def make_n_quadrotor_system(meshcat, n, cable_length, cable_hooke_K, free_body_m
     tensile_forces = []
 
     mass_body_index =  plant.GetBodyByName("base_link", floating_mass_model_instance).index()
-    for model_instance in quadrotor_model_instances:
+    for idx, model_instance in enumerate(quadrotor_model_instances):
         quad_body_index = plant.GetBodyByName("base_link", model_instance).index()
         # Note: Rotors 0 and 2 rotate one way and rotors 1 and 3 rotate the other.
         prop_info += [
@@ -76,7 +76,7 @@ def make_n_quadrotor_system(meshcat, n, cable_length, cable_hooke_K, free_body_m
             PropellerInfo(quad_body_index, RigidTransform([-L, 0, 0]), kF, kM),
             PropellerInfo(quad_body_index, RigidTransform([0, -L, 0]), kF, -kM),
         ]
-        tensile_force = builder.AddSystem(TensileForce(cable_length, cable_hooke_K, quad_body_index, mass_body_index, meshcat=meshcat))
+        tensile_force = builder.AddNamedSystem("tensile_force_%d" % idx, TensileForce(cable_length, cable_hooke_K, quad_body_index, mass_body_index, meshcat=meshcat))
         builder.Connect(
             plant.get_state_output_port(model_instance),
             tensile_force.quad_state_input
@@ -89,7 +89,7 @@ def make_n_quadrotor_system(meshcat, n, cable_length, cable_hooke_K, free_body_m
 
     propellers = builder.AddNamedSystem("propeller", Propeller(prop_info))
 
-    combiner = builder.AddNamedSystem("combiner", SpatialForceConcatinator(2))
+    combiner = builder.AddNamedSystem("external_forces_combiner", SpatialForceConcatinator(2))
     builder.Connect(
         propellers.get_output_port(),
         combiner.Input_ports[0]
