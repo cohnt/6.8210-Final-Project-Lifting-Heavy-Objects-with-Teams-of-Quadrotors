@@ -127,6 +127,8 @@ class DifferentialFlatness:
         # COMPUTE ROLL PITCH YAW
         # compute z axis of body frame
         t = np.array(sigma_ddt[0:3] - GRAVITY)
+        if not (np.isclose(sigma_ddt, 0.0)).all():
+            print('gotcha')
         z_b = t / np.linalg.norm(t)
 
         u_thrust = self.quad_mass * np.linalg.norm(t)
@@ -269,6 +271,10 @@ class DifferentialFlatness:
             tension_forces_di / self.spring_constant + mass_position_di + dirs_di * self.cable_length
             for tension_forces_di, mass_position_di, dirs_di in zip(tension_forces_ds, mass_position_ds, dirs_ds)
         ]
+
+
+        if not (np.isclose(quad_position_ds[2], 0.0)).all():
+            print('gotcha')
 
         # next, we solve the quad control inputs using the quad differential flatness
 
@@ -418,7 +424,11 @@ class DifferentialFlatness:
             continuity_degree=6
         )
         mass_traj.add_constraint(t=0, derivative_order=0, lb=mass_outputA)
+        mass_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(3))
+        mass_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(3))
         mass_traj.add_constraint(t=tf, derivative_order=0, lb=mass_outputB)
+        mass_traj.add_constraint(t=tf, derivative_order=1, lb=np.zeros(3))
+        mass_traj.add_constraint(t=tf, derivative_order=2, lb=np.zeros(3))
 
         mass_traj.generate()
 
@@ -430,7 +440,11 @@ class DifferentialFlatness:
             continuity_degree=4
         )
         tension_traj.add_constraint(t=0, derivative_order=0, lb=tension_outputA.flatten())  # row-major flatten
+        tension_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(n_tension_vars))  # row-major flatten
+        tension_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(n_tension_vars))  # row-major flatten
         tension_traj.add_constraint(t=tf, derivative_order=0, lb=tension_outputB.flatten())
+        tension_traj.add_constraint(t=tf, derivative_order=1, lb=np.zeros(n_tension_vars))  # row-major flatten
+        tension_traj.add_constraint(t=tf, derivative_order=2, lb=np.zeros(n_tension_vars))  # row-major flatten
 
         tension_traj.generate()
 
@@ -451,10 +465,10 @@ class DifferentialFlatness:
             # confirm that this reshape is correct
 
             # since we only got linear to work in this case, then only update with the data represented in the polynomial
-            for i in range(2):
+            for i in range(7):
                 mass_position_ds[t_ix, i, :] = mass_traj.eval(t, derivative_order=i)
 
-            for i in range(2):
+            for i in range(5):
                 tension_forces_ds[t_ix, i, :, :] = tension_traj.eval(t, derivative_order=i).reshape(
                     tension_outputA.shape)
 
