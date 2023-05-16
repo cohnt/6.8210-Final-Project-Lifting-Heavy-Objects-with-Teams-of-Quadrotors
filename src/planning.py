@@ -142,7 +142,7 @@ class DifferentialFlatness:
         # construct a rotation matrix and then convert to rpy
         R_WB = RotationMatrix(R=np.hstack([
             x_b.reshape(-1, 1), y_b.reshape(-1, 1), z_b.reshape(-1, 1)
-        ]))
+        ]).T)
         drake_rpy = R_WB.ToRollPitchYaw()
         rpy = np.array([drake_rpy.roll_angle(), drake_rpy.pitch_angle(), drake_rpy.yaw_angle()])
 
@@ -715,11 +715,12 @@ if __name__ == '__main__':
     assert np.all(np.isclose(tension_reoutput, tension_forces_ds[:, 0, :, :]))
     assert np.all(np.isclose(yaws_reoutput, yaws_ds[:, 0, :]))
 
-    times = [0.0, 0.5, 3.0]
+    times = [0.0, 3.0 / 3, 2 * 3.0 / 3, 3.0]
     waypoints = np.array([
-        [0.0, 0.0, 0.0],
-        [0.1, 0.1, 0.0],
-        [0.0, 2.0, 0.0]
+    [0.0, 0.0, 0.0],
+    [0.2, 0.5, 0.0],
+    [-0.2, 0.7, 0.0],
+    [0.0, 1.0, 0.0]
     ])
     mass_pos_ds, tension_forces_ds, yaws_ds = output_backer.waypoints_to_output_trajectory_for_three_quads(times,
                                                                                                            waypoints)
