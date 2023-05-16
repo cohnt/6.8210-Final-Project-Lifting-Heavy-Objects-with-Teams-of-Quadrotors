@@ -127,8 +127,8 @@ class DifferentialFlatness:
         # COMPUTE ROLL PITCH YAW
         # compute z axis of body frame
         t = np.array(sigma_ddt[0:3] - GRAVITY)
-        if not (np.isclose(sigma_ddt, 0.0)).all():
-            print('gotcha')
+        # if not (np.isclose(sigma_ddt, 0.0)).all():
+        #     print('gotcha')
         z_b = t / np.linalg.norm(t)
 
         u_thrust = self.quad_mass * np.linalg.norm(t)
@@ -273,8 +273,8 @@ class DifferentialFlatness:
         ]
 
 
-        if not (np.isclose(quad_position_ds[2], 0.0)).all():
-            print('gotcha')
+        # if not (np.isclose(quad_position_ds[2], 0.0)).all():
+        #     print('gotcha')
 
         # next, we solve the quad control inputs using the quad differential flatness
 
@@ -474,7 +474,7 @@ class DifferentialFlatness:
 
         return mass_position_ds, tension_forces_ds, yaws_ds
 
-    def waypoints_to_output_trajectory_for_three_quads(self, times, mass_waypoints, dt=0.01):
+    def waypoints_to_output_trajectory_for_three_quads(self, times, mass_waypoints, n_quads=3, dt=0.01):
         """
         Two quads will stay above the mass, the third will do the work of moving the trajectory around.
         """
@@ -482,15 +482,18 @@ class DifferentialFlatness:
         n_samples = len(times)
         tf = times[-1]
 
-        two_pi_over_three = 2 * np.pi / 3
-        quads_pos_relative_to_mass = self.load_mass * 9.81 / 3 / self.spring_constant * np.array(
-            [[np.cos(0), np.sin(0), 1.0],
-             [np.cos(two_pi_over_three), np.sin(two_pi_over_three), 1.0],
-             [np.cos(2 * two_pi_over_three), np.sin(2 * two_pi_over_three), 1.0]]  # lost through output map
-        )
+        two_pi_over_three = 2 * np.pi / n_quads
+        # quads_pos_relative_to_mass = self.load_mass * 9.81 / 3 / self.spring_constant * np.array(
+        #     [[np.cos(0), np.sin(0), 1.0],
+        #      [np.cos(two_pi_over_three), np.sin(two_pi_over_three), 1.0],
+        #      [np.cos(2 * two_pi_over_three), np.sin(2 * two_pi_over_three), 1.0]]  # lost through output map
+        # )
+        quads_pos_relative_to_mass = self.load_mass * 9.81 / 3/ self.spring_constant * np.array([
+            [np.cos(ang), np.sin(ang), 3.5] for ang in np.linspace(0, 2*np.pi, n_quads, endpoint=False)
+        ])
 
-        quads_waypoints = np.repeat(np.expand_dims(mass_waypoints, 1), 3, axis=1) + quads_pos_relative_to_mass
-        yaws = np.zeros(3)
+        quads_waypoints = np.repeat(np.expand_dims(mass_waypoints, 1), n_quads, axis=1) + quads_pos_relative_to_mass
+        yaws = np.zeros(n_quads)
 
         # compute corresponding output map
         output_waypoints = [
@@ -543,8 +546,8 @@ class DifferentialFlatness:
         ts = np.linspace(0, tf, n_t)
 
         mass_position_ds = np.zeros((n_t, 7, 3))
-        tension_forces_ds = np.zeros((n_t, 5, 2, 3))
-        yaws_ds = np.zeros((n_t, 5, 3))
+        tension_forces_ds = np.zeros((n_t, 5, n_quads-1, 3))
+        yaws_ds = np.zeros((n_t, 5, n_quads))
         yaws_ds[:, 0, :] = np.tile(yaws, (n_t, 1))
 
         for t_ix, t in enumerate(ts):
