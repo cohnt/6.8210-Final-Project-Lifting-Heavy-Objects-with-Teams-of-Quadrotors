@@ -164,4 +164,7 @@ def add_controller_to_system(system_diagram, controller, limit=None):
         builder.Connect(controller.get_output_port(0), saturation.get_input_port(0))
         builder.Connect(saturation.get_output_port(0), system_plant.get_input_port(0))
 
-    return builder.Build(), system_plant
+    controlled_diagram = builder.Build()
+    controlled_diagram.set_name("controlled_diagram")
+
+    return controlled_diagram, system_plant
