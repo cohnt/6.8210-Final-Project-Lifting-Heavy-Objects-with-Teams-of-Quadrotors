@@ -10,6 +10,11 @@ from pydrake.all import (
 GRAVITY = np.array([0.0, 0.0, -9.81])
 
 
+# DEBUG LIST:
+# [x] Check (for complicated trajectories) that pushing sol back to output yields correct input
+# [ ] If not: start by checking tension math
+# [ ] Then continue into quad math
+
 class PPTrajectory:
     def __init__(self, sample_times, num_vars, degree, continuity_degree):
         self.sample_times = sample_times
@@ -121,7 +126,7 @@ class DifferentialFlatness:
                                                    sigma_ddddt):
         # COMPUTE ROLL PITCH YAW
         # compute z axis of body frame
-        t = np.array(sigma[0:3] - GRAVITY)
+        t = np.array(sigma_ddt[0:3] - GRAVITY)
         z_b = t / np.linalg.norm(t)
 
         u_thrust = self.quad_mass * np.linalg.norm(t)
@@ -145,12 +150,12 @@ class DifferentialFlatness:
         h_omega = self.quad_mass / u_thrust * (sigma_dddt[0:3] - (np.dot(z_b, sigma_dddt[0:3]) * z_b))
         p = -np.dot(h_omega, y_b)
         q = np.dot(h_omega, x_b)
-        r = sigma_dt[2] * z_b[2]
+        r = np.dot(sigma_dt[3] * np.array([0.0, 0.0, 1.0]), z_b)
         omega = np.array([p, q, r])
 
         # COMPUTE ANGULAR ACCELERATION
         temp = np.cross(omega, np.cross(omega, z_b))
-        h_alpha = self.quad_mass / u_thrust * (sigma_ddddt[0:3] - (np.dot(z_b, sigma_ddddt[0:3])) * z_b) \
+        h_alpha = (self.quad_mass / u_thrust) * (sigma_ddddt[0:3] - (np.dot(z_b, sigma_ddddt[0:3])) * z_b) \
                   + (-temp + np.dot(z_b, temp) * z_b) \
                   - (2 / u_thrust) * z_b.dot(self.quad_mass * sigma_dddt[0:3]) * np.cross(omega, z_b)
 
@@ -295,8 +300,26 @@ class DifferentialFlatness:
         We're assuming that quad_poses are indexed num quad (0,..., n-1) X quad pos (XYZ)
         and load mass is indexed as (3,) vector (XYZ)
         """
-        tension_output = (self.spring_constant * (quad_poses - mass_pos))[:-1]
-        return mass_pos, tension_output, quad_yaws
+        mass_to_quad = quad_poses - mass_pos
+        mass_to_quad_dist = np.linalg.norm(mass_to_quad, axis=1).reshape(-1, 1)
+        q_mass_to_quad = mass_to_quad / mass_to_quad_dist
+        tension_output = (self.spring_constant * (quad_poses - mass_pos - self.cable_length * q_mass_to_quad))
+        in_tension_mask = np.array((mass_to_quad_dist >= self.cable_length), dtype=np.float32)
+        tension_output *= in_tension_mask
+        if not (in_tension_mask > 0).all():
+            print('WARNING: some quads not in tension. quads in tension: %s' % str(in_tension_mask))
+
+        return mass_pos, tension_output[1:], quad_yaws
+
+    def state_traj_to_output_traj(self, mass_pos_traj, quad_pos_traj, quad_yaw_traj):
+        nt, nquad, nxyz = quad_pos_traj.shape
+        assert nxyz == 3
+
+        tension_traj = np.zeros((nt, nquad - 1, nxyz))
+        for i, (mass_pos, quad_pos, quad_yaw) in enumerate(zip(mass_pos_traj, quad_pos_traj, quad_yaw_traj)):
+            _, tension_traj[i, :, :], _ = self.state_to_output(mass_pos, quad_pos, quad_yaw)
+
+        return mass_pos_traj, tension_traj, quad_yaw_traj
 
     def output_traj_to_state_traj(self, mass_output_trajs, tension_output_trajs, yaws_output_trajs):
         quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj = [], [], [], [], []
@@ -313,13 +336,13 @@ class DifferentialFlatness:
             quad_all_omega_traj.append(quad_all_omega)
             quad_all_us_traj.append(quad_all_us)
 
-        return quad_all_pos_traj, \
-            quad_all_rpy_traj, \
-            quad_all_vel_traj, \
-            quad_all_omega_traj, \
-            quad_all_us_traj, \
-            mass_output_trajs[:, 0, :], \
-            mass_output_trajs[:, 1, :]
+        return np.array(quad_all_pos_traj), \
+            np.array(quad_all_rpy_traj), \
+            np.array(quad_all_vel_traj), \
+            np.array(quad_all_omega_traj), \
+            np.array(quad_all_us_traj), \
+            np.array(mass_output_trajs[:, 0, :]), \
+            np.array(mass_output_trajs[:, 1, :])
 
     def demo_traj_for_three_quads(self, num_steps=100):
         """Moves 1 meter in the y direction, with increments split over num_steps (i'm not sure
@@ -366,91 +389,6 @@ class DifferentialFlatness:
 
         return quad_all_pos_traj, quad_all_rpy_traj, quad_all_vel_traj, quad_all_omega_traj, quad_all_us_traj, \
             mass_pos_traj, mass_vel_traj, mass_quat_traj, mass_omega_traj
-
-    # def circle_traj_for_three_quads(self, num_loops=1, sec_per_loop=3, loop_rad=0.5, dt=0.01):
-    #     # design a trajectory with two quads staying still, leveraging the state mapping to do the do the
-    #     # and approximate the circle with piewise polynomials
-    #
-    #     points_per_circle = 5
-    #
-    #     angle_steps_one_loop = np.linspace(0, 2 * np.pi, points_per_circle)
-    #     angle_steps = np.concatenate([np.tile(angle_steps_one_loop[:-1], num_loops - 1), angle_steps_one_loop])
-    #     n_samples = len(angle_steps)
-    #
-    #     # mass motion
-    #     mass_movement = np.hstack([
-    #         loop_rad * np.cos(angle_steps).reshape(-1, 1),
-    #         loop_rad * np.sin(angle_steps).reshape(-1, 1),
-    #         np.zeros((n_samples, 1))
-    #     ])
-    #
-    #     # define quad positions:
-    #     quad_pos = np.array([
-    #         [0.25, 0.0, 1.0],
-    #         [0.0, 0.25, 1.0],
-    #         [0.0, 0.0, 1.0]  # this line doesn't matter, it's really just a placeholder since state->output removes it
-    #     ])
-    #
-    #     yaws = np.zeros(3)
-    #
-    #     output_waypoints = [
-    #         self.state_to_output(mass_movement[i], quad_pos, yaws) for i in range(n_samples)
-    #     ]
-    #
-    #     # now, fit with a trajectory
-    #     n_tension_vars = output_waypoints[0][1].size
-    #     T = sec_per_loop * num_loops
-    #     mass_traj = PPTrajectory(
-    #         sample_times=np.linspace(0, T, n_samples),
-    #         num_vars=3,
-    #         degree=7,
-    #         continuity_degree=6
-    #     )
-    #
-    #     tension_traj = PPTrajectory(
-    #         sample_times=np.linspace(0, T, n_samples),
-    #         num_vars=n_tension_vars,
-    #         degree=5,
-    #         continuity_degree=4
-    #     )
-    #
-    #     sample_ts = np.linspace(0, T, n_samples)
-    #     # mass_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(3))
-    #     # mass_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(3))
-    #     # mass_traj.add_constraint(t=sample_ts[-1], derivative_order=1, lb=np.zeros(3))
-    #     # mass_traj.add_constraint(t=sample_ts[-1], derivative_order=2, lb=np.zeros(3))
-    #     #
-    #     # tension_traj.add_constraint(t=0, derivative_order=1, lb=np.zeros(n_tension_vars))
-    #     # tension_traj.add_constraint(t=0, derivative_order=2, lb=np.zeros(n_tension_vars))
-    #     # tension_traj.add_constraint(t=sample_ts[-1], derivative_order=1, lb=np.zeros(n_tension_vars))
-    #     # tension_traj.add_constraint(t=sample_ts[-1], derivative_order=2, lb=np.zeros(n_tension_vars))
-    #
-    #     for t, (mass_o, tension_o, yaw_o) in zip(sample_ts, output_waypoints):
-    #         mass_traj.add_constraint(t=0, derivative_order=0, lb=mass_o)
-    #         tension_traj.add_constraint(t=0, derivative_order=0, lb=tension_o.flatten(order='C'))  # row-major flatten
-    #
-    #     mass_traj.generate()
-    #     tension_traj.generate()
-    #
-    #     n_t = math.ceil(T / dt)
-    #     ts = np.linspace(0, T, n_t)
-    #
-    #     mass_position_ds = np.zeros((n_t, 7, 3))
-    #     tension_forces_ds = np.zeros((n_t, 5, 2, 3))
-    #     yaws_ds = np.zeros((n_t, 5, 3))
-    #     yaws_ds[:, 0, :] = np.tile(yaws, (n_t, 1))
-    #
-    #     for t_ix, t in enumerate(ts):
-    #         # confirm that this reshape is correct
-    #
-    #         for i in range(7):
-    #             mass_position_ds[t_ix, i, :] = mass_traj.eval(t, derivative_order=i)
-    #
-    #         for i in range(5):
-    #             tension_forces_ds[t_ix, i, :, :] = tension_traj.eval(t, derivative_order=i).reshape(
-    #                 output_waypoints[0][1].shape)
-    #
-    #     return mass_position_ds, tension_forces_ds, yaws_ds
 
     def straight_trajectory_from_outputA_to_outputB(self,
                                                     mass_outputA,
@@ -534,7 +472,7 @@ class DifferentialFlatness:
         quads_pos_relative_to_mass = self.load_mass * 9.81 / 3 / self.spring_constant * np.array(
             [[np.cos(0), np.sin(0), 1.0],
              [np.cos(two_pi_over_three), np.sin(two_pi_over_three), 1.0],
-             [np.cos(2 * two_pi_over_three), np.sin(2 * two_pi_over_three), 1.0]] # lost through output map
+             [np.cos(2 * two_pi_over_three), np.sin(2 * two_pi_over_three), 1.0]]  # lost through output map
         )
 
         quads_waypoints = np.repeat(np.expand_dims(mass_waypoints, 1), 3, axis=1) + quads_pos_relative_to_mass
@@ -622,7 +560,7 @@ if __name__ == '__main__':
     dummy_kF = 1.0
     dummy_kM = 0.0245
     dummy_arm_length = 0.15
-    spring_dummy_constant = 10
+    spring_dummy_constant = 1
 
     output_backer = DifferentialFlatness(load_dummy_mass, dummy_cable_length, spring_dummy_constant, dummy_arm_length,
                                          dummy_kF,
@@ -630,86 +568,86 @@ if __name__ == '__main__':
 
     # we'll test a single timeframe
     # assume we have three quads, but two of them are balancing the mass already (expecting zero force on the remaining)
-    mass_output = (
-        np.zeros(3),
-        np.zeros(3),
-        np.zeros(3),
-        np.zeros(3),
-        np.zeros(3),
-        np.zeros(3),
-        np.zeros(3)
-    )
-
-    tension_forces_output = (
-        np.array([[1.0, 0.0, 1.0],
-                  [-1.0, 0.0, 1.0]]),
-        np.zeros((2, 3)),
-        np.zeros((2, 3)),
-        np.zeros((2, 3)),
-        np.zeros((2, 3))
-    )
-
-    yaws_output = (
-        np.zeros(3),
-        np.zeros(3),
-        np.zeros(3),
-        np.zeros(3),
-        np.zeros(3)
-    )
-
-    quad_pos_all, quad_rpy_all, quad_vel_all, quad_omega_all, quad_us_all \
-        = output_backer.compute_point_mass_state_and_control_from_output(mass_output,
-                                                                         tension_forces_output,
-                                                                         yaws_output)
-
-    # then we can try something a little less trivial (i.e. move the quads in a circle around obj still stable
-    print('stable equilibrium')
-    print('quad_pos_all: \n' + str(quad_pos_all))
-    print('quad_vel_all: \n' + str(quad_vel_all))
-    print('quad_rpy_all: \n' + str(quad_rpy_all))
-    print('quad_omega_all: \n' + str(quad_omega_all))
-    print('quad_us_all: \n' + str(quad_us_all))
-
-    mass_output = (
-        np.zeros(3),
-        np.zeros(3),
-        np.array([0.0, 0.0, 1.0]),
-        np.zeros(3),
-        np.zeros(3),
-        np.zeros(3),
-        np.zeros(3)
-    )
-
-    two_pi_over_three = np.pi * 2 / 3
-    tension_forces_output = (
-        (9.81 + 1) / 3 * np.array([[np.cos(0), np.sin(0), 1.0],
-                                   [np.cos(two_pi_over_three), np.sin(two_pi_over_three), 1.0]]),
-        np.zeros((2, 3)),
-        np.array([[0.0, 0.0, 0.0],
-                  [0.0, 0.0, 0.0]]),
-        np.zeros((2, 3)),
-        np.zeros((2, 3))
-    )
-
-    yaws_output = (
-        np.zeros(3),
-        np.zeros(3),
-        np.zeros(3),
-        np.zeros(3),
-        np.zeros(3)
-    )
-
-    quad_pos_all, quad_rpy_all, quad_vel_all, quad_omega_all, quad_us_all \
-        = output_backer.compute_point_mass_state_and_control_from_output(mass_output,
-                                                                         tension_forces_output,
-                                                                         yaws_output)
-    print('\naccelerating upward uniformally')
-    print('quad_pos_all: \n' + str(quad_pos_all))
-    print('quad_vel_all: \n' + str(quad_vel_all))
-    print('quad_rpy_all: \n' + str(quad_rpy_all))
-    print('quad_omega_all: \n' + str(quad_omega_all))
-    print('quad_us_all: \n' + str(quad_us_all))
-
+    # mass_output = (
+    #     np.zeros(3),
+    #     np.zeros(3),
+    #     np.zeros(3),
+    #     np.zeros(3),
+    #     np.zeros(3),
+    #     np.zeros(3),
+    #     np.zeros(3)
+    # )
+    #
+    # tension_forces_output = (
+    #     np.array([[1.0, 0.0, 1.0],
+    #               [-1.0, 0.0, 1.0]]),
+    #     np.zeros((2, 3)),
+    #     np.zeros((2, 3)),
+    #     np.zeros((2, 3)),
+    #     np.zeros((2, 3))
+    # )
+    #
+    # yaws_output = (
+    #     np.zeros(3),
+    #     np.zeros(3),
+    #     np.zeros(3),
+    #     np.zeros(3),
+    #     np.zeros(3)
+    # )
+    #
+    # quad_pos_all, quad_rpy_all, quad_vel_all, quad_omega_all, quad_us_all \
+    #     = output_backer.compute_point_mass_state_and_control_from_output(mass_output,
+    #                                                                      tension_forces_output,
+    #                                                                      yaws_output)
+    #
+    # # then we can try something a little less trivial (i.e. move the quads in a circle around obj still stable
+    # print('stable equilibrium')
+    # print('quad_pos_all: \n' + str(quad_pos_all))
+    # print('quad_vel_all: \n' + str(quad_vel_all))
+    # print('quad_rpy_all: \n' + str(quad_rpy_all))
+    # print('quad_omega_all: \n' + str(quad_omega_all))
+    # print('quad_us_all: \n' + str(quad_us_all))
+    #
+    # mass_output = (
+    #     np.zeros(3),
+    #     np.zeros(3),
+    #     np.array([0.0, 0.0, 1.0]),
+    #     np.zeros(3),
+    #     np.zeros(3),
+    #     np.zeros(3),
+    #     np.zeros(3)
+    # )
+    #
+    # two_pi_over_three = np.pi * 2 / 3
+    # tension_forces_output = (
+    #     (9.81 + 1) / 3 * np.array([[np.cos(0), np.sin(0), 1.0],
+    #                                [np.cos(two_pi_over_three), np.sin(two_pi_over_three), 1.0]]),
+    #     np.zeros((2, 3)),
+    #     np.array([[0.0, 0.0, 0.0],
+    #               [0.0, 0.0, 0.0]]),
+    #     np.zeros((2, 3)),
+    #     np.zeros((2, 3))
+    # )
+    #
+    # yaws_output = (
+    #     np.zeros(3),
+    #     np.zeros(3),
+    #     np.zeros(3),
+    #     np.zeros(3),
+    #     np.zeros(3)
+    # )
+    #
+    # quad_pos_all, quad_rpy_all, quad_vel_all, quad_omega_all, quad_us_all \
+    #     = output_backer.compute_point_mass_state_and_control_from_output(mass_output,
+    #                                                                      tension_forces_output,
+    #                                                                      yaws_output)
+    # print('\naccelerating upward uniformally')
+    # print('quad_pos_all: \n' + str(quad_pos_all))
+    # print('quad_vel_all: \n' + str(quad_vel_all))
+    # print('quad_rpy_all: \n' + str(quad_rpy_all))
+    # print('quad_omega_all: \n' + str(quad_omega_all))
+    # print('quad_us_all: \n' + str(quad_us_all))
+    #
     mass_output = (
         np.zeros(3),
         np.zeros(3),
@@ -738,29 +676,44 @@ if __name__ == '__main__':
         np.zeros(3),
         np.zeros(3)
     )
-
-    quad_pos_all, quad_rpy_all, quad_vel_all, quad_omega_all, quad_us_all \
-        = output_backer.compute_point_mass_state_and_control_from_output(mass_output,
-                                                                         tension_forces_output,
-                                                                         yaws_output)
-    print('\ncircling')
-    print('quad_pos_all: \n' + str(quad_pos_all))
-    print('quad_vel_all: \n' + str(quad_vel_all))
-    print('quad_rpy_all: \n' + str(quad_rpy_all))
-    print('quad_omega_all: \n' + str(quad_omega_all))
-    print('quad_us_all: \n' + str(quad_us_all))
-
-    # testing for n = 3 quads using the last circling operation
+    #
+    # quad_pos_all, quad_rpy_all, quad_vel_all, quad_omega_all, quad_us_all \
+    #     = output_backer.compute_point_mass_state_and_control_from_output(mass_output,
+    #                                                                      tension_forces_output,
+    #                                                                      yaws_output)
+    # print('\ncircling')
+    # print('quad_pos_all: \n' + str(quad_pos_all))
+    # print('quad_vel_all: \n' + str(quad_vel_all))
+    # print('quad_rpy_all: \n' + str(quad_rpy_all))
+    # print('quad_omega_all: \n' + str(quad_omega_all))
+    # print('quad_us_all: \n' + str(quad_us_all))
+    #
+    # # testing for n = 3 quads using the last circling operation
     mass_posA = mass_output[0]
     tension_forces = tension_forces_output[0]
     yaws = yaws_output[0]
 
-    # demo_traj_for_three_quads(load_dummy_mass, dummy_kF, dummy_kM, dummy_arm_length, quad_dummy_mass,
-    #                           quad_dummy_inertia, spring_dummy_constant, dummy_cable_length)
-
+    # should be unit tests, but just checking output solve/output map consistency here
     mass_posB = mass_output[1] + np.array([1.0, 0.0, 0.0])
     mass_pos_ds, tension_forces_ds, yaws_ds = output_backer.straight_trajectory_from_outputA_to_outputB(
         mass_posA, tension_forces, yaws, mass_posB, tension_forces, yaws, tf=5)
+    quad_all_pos_traj, \
+        quad_all_rpy_traj, \
+        quad_all_vel_traj, \
+        quad_all_omega_traj, \
+        quad_all_us_traj, \
+        mass_state_pos_traj, \
+        mass_state_vel_traj = output_backer.output_traj_to_state_traj(mass_pos_ds,
+                                                                      tension_forces_ds,
+                                                                      yaws_ds)
+    mass_reoutput, tension_reoutput, yaws_reoutput = output_backer.state_traj_to_output_traj(
+        mass_state_pos_traj,
+        quad_all_pos_traj,
+        quad_all_rpy_traj[:, :, 2]
+    )
+    assert np.all(np.isclose(mass_reoutput, mass_pos_ds[:, 0, :]))
+    assert np.all(np.isclose(tension_reoutput, tension_forces_ds[:, 0, :, :]))
+    assert np.all(np.isclose(yaws_reoutput, yaws_ds[:, 0, :]))
 
     times = [0.0, 0.5, 3.0]
     waypoints = np.array([
@@ -768,4 +721,22 @@ if __name__ == '__main__':
         [0.1, 0.1, 0.0],
         [0.0, 2.0, 0.0]
     ])
-    output_backer.waypoints_to_output_trajectory_for_three_quads(times, waypoints)
+    mass_pos_ds, tension_forces_ds, yaws_ds = output_backer.waypoints_to_output_trajectory_for_three_quads(times,
+                                                                                                           waypoints)
+    quad_all_pos_traj, \
+        quad_all_rpy_traj, \
+        quad_all_vel_traj, \
+        quad_all_omega_traj, \
+        quad_all_us_traj, \
+        mass_state_pos_traj, \
+        mass_state_vel_traj = output_backer.output_traj_to_state_traj(mass_pos_ds,
+                                                                      tension_forces_ds,
+                                                                      yaws_ds)
+    mass_reoutput, tension_reoutput, yaws_reoutput = output_backer.state_traj_to_output_traj(
+        mass_state_pos_traj,
+        quad_all_pos_traj,
+        quad_all_rpy_traj[:, :, 2]
+    )
+    assert np.all(np.isclose(mass_reoutput, mass_pos_ds[:, 0, :]))
+    assert np.all(np.isclose(tension_reoutput, tension_forces_ds[:, 0, :, :]))
+    assert np.all(np.isclose(yaws_reoutput, yaws_ds[:, 0, :]))
