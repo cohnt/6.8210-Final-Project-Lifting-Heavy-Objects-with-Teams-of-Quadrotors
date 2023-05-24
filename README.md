@@ -7,7 +7,7 @@ We combined the approaches described in [1] and [2] to design a set of control s
 Check out `6_8210_Final_Project_Report.pdf` for the project report!
 
 Project video link: [https://youtu.be/c17hjDMm7Gw](https://youtu.be/c17hjDMm7Gw)
-
+Additional videos: [https://youtube.com/playlist?list=PLU6BDl-vm1jQolVMZFbHOre19acIl-vtI](https://youtube.com/playlist?list=PLU6BDl-vm1jQolVMZFbHOre19acIl-vtI)
 
 [1] K. Sreenath and V. Kumar, “Dynamics, Control and Planning for Cooperative Manipulation of Payloads Suspended by Cables from Multiple Quadrotor Robots,” in Robotics: Science and Systems IX. Robotics: Science and Systems Foundation, Jun. 2013.
 
