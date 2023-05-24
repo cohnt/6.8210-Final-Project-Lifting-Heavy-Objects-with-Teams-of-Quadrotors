@@ -1,4 +1,4 @@
-#Tommy and Seiji's 6.8210 Final Project
+# Tommy and Seiji's 6.8210 Final Project
 
 ## Cooperative Shared-Load Carrying by Quadrotors
 
