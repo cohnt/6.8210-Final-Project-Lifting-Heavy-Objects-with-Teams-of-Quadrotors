@@ -4,7 +4,7 @@
 
 We combined the approaches described in [1] and [2] to design a set of control strategies for a multi-quadrotor system to cooperatively carry a slung load.
 
-Check out `6_8210_Final_Project_Report.pdf' for the project report!
+Check out `6_8210_Final_Project_Report.pdf` for the project report!
 
 Project video link: [https://youtu.be/c17hjDMm7Gw](https://youtu.be/c17hjDMm7Gw)
 
