@@ -1,26 +1,17 @@
-Use an underactuated-compatible virtual environment. See: https://underactuated.csail.mit.edu/drake.html#section3
+#Tommy and Seiji's 6.8210 Final Project
+
+## Cooperative Shared-Load Carrying by Quadrotors
+
+We combined the approaches described in [1] and [2] to design a set of control strategies for a multi-quadrotor system to cooperatively carry a slung load.
+
+Check out `6_8210_Final_Project_Report.pdf' for the project report!
+
+Project video link: [https://youtu.be/c17hjDMm7Gw](https://youtu.be/c17hjDMm7Gw)
 
 
-Notes for free-body modelling:
+[1] K. Sreenath and V. Kumar, “Dynamics, Control and Planning for Cooperative Manipulation of Payloads Suspended by Cables from Multiple Quadrotor Robots,” in Robotics: Science and Systems IX. Robotics: Science and Systems Foundation, Jun. 2013.
 
-Adding a rigid body: https://drake.mit.edu/doxygen_cxx/classdrake_1_1multibody_1_1_multibody_plant.html#a461a59b672f8c3f7c0dcc5caed56d245
-Will use the default model instance (index 1)
+[2] D. Mellinger and V. Kumar, “Minimum snap trajectory generation and control for quadrotors,” in 2011 IEEE International Conference on Robotics and Automation, May 2011,
 
-Work out the inertia matrix of a point (likely diagonal, and degenerate since orientation doesn't matter... 
-but that may mess up computations) (can also be created using SpatialInertia.PointMass() static method)
 
-Looks like SpatialInertia.PointMass isn't available from python, so we will construct the spatial inertia
-matrix ourselves.
 
-Registering geometry with the SceneGraph: 
-1) Call RegisterAsSourceForSceneGraph() (this may already be done on instantiation of MultibodyPlant)
-2) Call RegisterVisualGeometry(). Drake has geometric primitives built in: https://drake.mit.edu/doxygen_cxx/classdrake_1_1geometry_1_1_sphere.html#ad4eb22638a3841217373d2caee0d6a74
-
-Then in TensileForce - modify to take in two bodies and output two forces (one on each body) - only need modify the input forces. Make sure the lists are aligned.
-
-Russ has a manual implementation of defining a mathematical program that can solve for arbitrary piecewise-polynomial
-trajectories as the last example of Chp. 3 + Chp. 10 in the underactuated textbook.
-
-# workflow
-The more principled way to go about this is to use a PiecewisePolynomial traj: https://drake.mit.edu/doxygen_cxx/classdrake_1_1trajectories_1_1_piecewise_trajectory.html
-(need to still work out how to solve for one using MathematicalProgram) (ask Tommy about how to do this, since I'd prefer drake's machinery)
